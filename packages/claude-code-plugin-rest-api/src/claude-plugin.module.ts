@@ -1,14 +1,18 @@
-import { Module, DynamicModule, Provider, InjectionToken, OptionalFactoryDependency } from '@nestjs/common';
+import { Module, DynamicModule, Provider, InjectionToken, OptionalFactoryDependency, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD } from '@nestjs/core';
 import { PluginDiscoveryService, PLUGIN_DISCOVERY_OPTIONS } from './services/plugin-discovery.service.js';
 import { PluginExecutionService, PLUGIN_EXECUTION_OPTIONS } from './services/plugin-execution.service.js';
 import { StreamSessionService } from './services/stream-session.service.js';
+import { AgentService, AGENT_CONFIG } from './services/agent.service.js';
 import { PluginController, StreamController } from './controllers/plugin.controller.js';
+import { AgentController } from './controllers/agent.controller.js';
 import { BasicAuthGuard } from './auth/auth.guard.js';
 import { YamlAuthProvider } from './auth/yaml-auth.provider.js';
 import { AuthModuleOptions, AUTH_OPTIONS, AUTH_PROVIDER } from './auth/auth.types.js';
+import { AgentConfig } from './types/plugin.types.js';
 
 export interface ClaudePluginModuleOptions {
   /**
@@ -52,12 +56,44 @@ export interface ClaudePluginModuleOptions {
    * Set to { disabled: true } to disable built-in auth
    */
   auth?: AuthModuleOptions;
+
+  /**
+   * User-defined agents with full SDK options.
+   * Each agent gets exposed via /v1/agents/:name endpoint.
+   *
+   * @example
+   * ```typescript
+   * agents: {
+   *   'uber-agent': {
+   *     systemPrompt: 'You have full access to all tools.',
+   *     permissionMode: 'bypassPermissions',
+   *     tools: { type: 'preset', preset: 'claude_code' },
+   *   }
+   * }
+   * ```
+   */
+  agents?: Record<string, AgentConfig>;
 }
 
 const CLAUDE_PLUGIN_OPTIONS = 'CLAUDE_PLUGIN_OPTIONS';
 
 @Module({})
-export class ClaudePluginModule {
+export class ClaudePluginModule implements OnModuleInit {
+  constructor(private moduleRef: ModuleRef) {}
+
+  async onModuleInit() {
+    // Wire up AgentService to StreamController for streaming user-defined agents
+    try {
+      const streamController = this.moduleRef.get(StreamController, { strict: false });
+      const agentService = this.moduleRef.get(AgentService, { strict: false });
+      if (streamController && agentService) {
+        streamController.setAgentService(agentService);
+      }
+    } catch {
+      // AgentService may not be registered if no agents configured
+    }
+  }
+
   /**
    * Configure the Claude Plugin module with options
    */
@@ -76,8 +112,12 @@ export class ClaudePluginModule {
       useValue: resolvedOptions,
     };
 
+    // Include AgentController if agents are configured
+    const hasAgents = options.agents && Object.keys(options.agents).length > 0;
     const controllers = resolvedOptions.includeControllers
-      ? [PluginController, StreamController]
+      ? hasAgents
+        ? [PluginController, StreamController, AgentController]
+        : [PluginController, StreamController]
       : [];
 
     // Auth configuration
@@ -107,6 +147,17 @@ export class ClaudePluginModule {
       },
     ];
 
+    // Agent providers (only if agents are configured)
+    const agentProviders: Provider[] = hasAgents
+      ? [
+          {
+            provide: AGENT_CONFIG,
+            useValue: options.agents || {},
+          },
+          AgentService,
+        ]
+      : [];
+
     return {
       module: ClaudePluginModule,
       imports: [
@@ -117,6 +168,7 @@ export class ClaudePluginModule {
       providers: [
         optionsProvider,
         ...authProviders,
+        ...agentProviders,
         {
           provide: PLUGIN_DISCOVERY_OPTIONS,
           useValue: {
@@ -139,6 +191,7 @@ export class ClaudePluginModule {
         PluginDiscoveryService,
         PluginExecutionService,
         StreamSessionService,
+        ...(hasAgents ? [AgentService] : []),
         CLAUDE_PLUGIN_OPTIONS,
       ],
       global: true,
@@ -219,6 +272,16 @@ export class ClaudePluginModule {
       inject: asyncOptions.inject || [],
     };
 
+    // Agent config provider for async usage
+    const agentConfigProvider: Provider = {
+      provide: AGENT_CONFIG,
+      useFactory: async (...args: unknown[]) => {
+        const opts = await asyncOptions.useFactory(...args);
+        return opts.agents || {};
+      },
+      inject: asyncOptions.inject || [],
+    };
+
     return {
       module: ClaudePluginModule,
       imports: [
@@ -226,7 +289,8 @@ export class ClaudePluginModule {
         EventEmitterModule.forRoot(),
         ...(asyncOptions.imports as DynamicModule[] || []),
       ],
-      controllers: [PluginController, StreamController],
+      // Include all controllers - AgentController handles empty agents gracefully
+      controllers: [PluginController, StreamController, AgentController],
       providers: [
         optionsProvider,
         authOptionsProvider,
@@ -237,14 +301,17 @@ export class ClaudePluginModule {
         },
         discoveryOptionsProvider,
         executionOptionsProvider,
+        agentConfigProvider,
         PluginDiscoveryService,
         PluginExecutionService,
         StreamSessionService,
+        AgentService,
       ],
       exports: [
         PluginDiscoveryService,
         PluginExecutionService,
         StreamSessionService,
+        AgentService,
         CLAUDE_PLUGIN_OPTIONS,
       ],
       global: true,

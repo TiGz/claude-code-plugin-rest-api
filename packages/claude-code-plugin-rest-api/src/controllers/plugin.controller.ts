@@ -365,12 +365,14 @@ export class PluginController {
 }
 
 /**
- * Separate controller for SSE streaming to avoid mixing with REST endpoints
+ * Separate controller for SSE streaming to avoid mixing with REST endpoints.
+ * Handles both plugin-discovered agents and user-defined agents.
  */
 @ApiTags('streaming')
 @Controller('v1/stream')
 export class StreamController {
   private readonly logger = new Logger(StreamController.name);
+  private agentService: import('../services/agent.service.js').AgentService | null = null;
 
   constructor(
     private readonly pluginExecution: PluginExecutionService,
@@ -378,11 +380,20 @@ export class StreamController {
   ) {}
 
   /**
-   * Consume a stream session via SSE
+   * Set the agent service for user-defined agent streaming.
+   * Called by the module during initialization.
+   */
+  setAgentService(agentService: import('../services/agent.service.js').AgentService): void {
+    this.agentService = agentService;
+  }
+
+  /**
+   * Consume a stream session via SSE.
+   * Supports both plugin agents and user-defined agents.
    */
   @Sse(':sessionId')
   @ApiOperation({ summary: 'Stream agent responses via SSE' })
-  @ApiParam({ name: 'sessionId', description: 'Stream session ID from POST /v1/plugins/stream' })
+  @ApiParam({ name: 'sessionId', description: 'Stream session ID from POST /v1/plugins/stream or /v1/agents/:name/stream' })
   consumeStream(@Param('sessionId') sessionId: string): Observable<SseMessage> {
     const session = this.streamSession.getSession(sessionId);
 
@@ -395,59 +406,36 @@ export class StreamController {
     // Mark session as consumed
     this.streamSession.markConsumed(sessionId);
 
-    this.logger.log(`Streaming agent: ${session.pluginName}/${session.agentName}`);
+    // Check if this is a user-defined agent (marked with __agent__)
+    if (session.pluginName === '__agent__') {
+      if (!this.agentService) {
+        return of({
+          data: { type: 'error', error: 'Agent service not available' },
+        });
+      }
+
+      this.logger.log(`Streaming user-defined agent: ${session.agentName}`);
+
+      return this.agentService.stream(session.agentName, session.prompt).pipe(
+        map((message) => this.formatSseMessage(message)),
+        catchError((error: Error) => {
+          this.logger.error(`Stream error: ${error.message}`);
+          return of({
+            data: { type: 'error', error: error.message, timestamp: Date.now() },
+          });
+        }),
+      );
+    }
+
+    // Otherwise use plugin agent (existing behavior)
+    this.logger.log(`Streaming plugin agent: ${session.pluginName}/${session.agentName}`);
 
     return this.pluginExecution.streamAgent(session.pluginName, session.agentName, {
       arguments: session.prompt,
       maxTurns: session.maxTurns,
       maxBudgetUsd: session.maxBudgetUsd,
     }).pipe(
-      map((message) => {
-        if (message.type === 'assistant') {
-          const assistantMessage = message as { type: 'assistant'; message: { content: Array<{ type: string; text?: string }> } };
-          const text = assistantMessage.message.content
-            .filter((c) => c.type === 'text')
-            .map((c) => c.text || '')
-            .join('');
-
-          return {
-            data: {
-              type: 'delta',
-              content: text,
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        if (message.type === 'result') {
-          const resultMessage = message as {
-            type: 'result';
-            is_error?: boolean;
-            result?: string;
-            total_cost_usd?: number;
-            num_turns?: number;
-          };
-          return {
-            data: {
-              type: 'complete',
-              result: {
-                success: !resultMessage.is_error,
-                result: resultMessage.result,
-                cost: resultMessage.total_cost_usd,
-                turns: resultMessage.num_turns,
-              },
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        return {
-          data: {
-            type: message.type,
-            timestamp: Date.now(),
-          },
-        };
-      }),
+      map((message) => this.formatSseMessage(message)),
       catchError((error: Error) => {
         this.logger.error(`Stream error: ${error.message}`);
         return of({
@@ -455,5 +443,58 @@ export class StreamController {
         });
       }),
     );
+  }
+
+  /**
+   * Format SDK message to SSE message format
+   */
+  private formatSseMessage(message: { type: string; [key: string]: unknown }): SseMessage {
+    if (message.type === 'assistant') {
+      const assistantMessage = message as {
+        type: 'assistant';
+        message: { content: Array<{ type: string; text?: string }> };
+      };
+      const text = assistantMessage.message.content
+        .filter((c) => c.type === 'text')
+        .map((c) => c.text || '')
+        .join('');
+
+      return {
+        data: {
+          type: 'delta',
+          content: text,
+          timestamp: Date.now(),
+        },
+      };
+    }
+
+    if (message.type === 'result') {
+      const resultMessage = message as {
+        type: 'result';
+        is_error?: boolean;
+        result?: string;
+        total_cost_usd?: number;
+        num_turns?: number;
+      };
+      return {
+        data: {
+          type: 'complete',
+          result: {
+            success: !resultMessage.is_error,
+            result: resultMessage.result,
+            cost: resultMessage.total_cost_usd,
+            turns: resultMessage.num_turns,
+          },
+          timestamp: Date.now(),
+        },
+      };
+    }
+
+    return {
+      data: {
+        type: message.type,
+        timestamp: Date.now(),
+      },
+    };
   }
 }

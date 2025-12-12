@@ -8,6 +8,7 @@ export { PluginExecutionService } from './services/plugin-execution.service.js';
 export type { ExecutionOptions, ExecutionResult, Attachment, AttachmentSource } from './services/plugin-execution.service.js';
 export { StreamSessionService } from './services/stream-session.service.js';
 export type { StreamSession } from './services/stream-session.service.js';
+export { AgentService, AGENT_CONFIG } from './services/agent.service.js';
 
 // Types
 export type {
@@ -16,10 +17,16 @@ export type {
   PluginAgent,
   PluginSkill,
   DiscoveredPlugin,
+  // User-defined agent types
+  AgentConfig,
+  PermissionMode,
+  ToolsConfig,
+  PluginPath,
 } from './types/plugin.types.js';
 
 // Controllers (for custom routing)
 export { PluginController, StreamController } from './controllers/plugin.controller.js';
+export { AgentController } from './controllers/agent.controller.js';
 
 // Auth exports
 export type { AuthUser, AuthProvider, AuthModuleOptions } from './auth/auth.types.js';
