@@ -20,7 +20,6 @@ export type {
 
 // Controllers (for custom routing)
 export { PluginController, StreamController } from './controllers/plugin.controller.js';
-export { FilesController } from './controllers/files.controller.js';
 
 // Auth exports
 export type { AuthUser, AuthProvider, AuthModuleOptions } from './auth/auth.types.js';

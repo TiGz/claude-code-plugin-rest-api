@@ -10,8 +10,8 @@
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,test}/**/*.ts\"",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --config ./vitest.e2e.config.ts",
+    "test:watch": "vitest --config ./vitest.e2e.config.ts",
     "test:e2e": "vitest run --config ./vitest.e2e.config.ts",
     "test:local": "vitest run --config ./vitest.local.config.ts"
   },

@@ -6,7 +6,6 @@ import { PluginDiscoveryService, PLUGIN_DISCOVERY_OPTIONS } from './services/plu
 import { PluginExecutionService, PLUGIN_EXECUTION_OPTIONS } from './services/plugin-execution.service.js';
 import { StreamSessionService } from './services/stream-session.service.js';
 import { PluginController, StreamController } from './controllers/plugin.controller.js';
-import { FilesController } from './controllers/files.controller.js';
 import { BasicAuthGuard } from './auth/auth.guard.js';
 import { YamlAuthProvider } from './auth/yaml-auth.provider.js';
 import { AuthModuleOptions, AUTH_OPTIONS, AUTH_PROVIDER } from './auth/auth.types.js';
@@ -78,7 +77,7 @@ export class ClaudePluginModule {
     };
 
     const controllers = resolvedOptions.includeControllers
-      ? [PluginController, StreamController, FilesController]
+      ? [PluginController, StreamController]
       : [];
 
     // Auth configuration
@@ -227,7 +226,7 @@ export class ClaudePluginModule {
         EventEmitterModule.forRoot(),
         ...(asyncOptions.imports as DynamicModule[] || []),
       ],
-      controllers: [PluginController, StreamController, FilesController],
+      controllers: [PluginController, StreamController],
       providers: [
         optionsProvider,
         authOptionsProvider,
