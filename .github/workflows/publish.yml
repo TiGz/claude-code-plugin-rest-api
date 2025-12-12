@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +23,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://npm.pkg.github.com'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -36,7 +35,7 @@ jobs:
       - name: Run tests
         run: pnpm --filter @tigz/claude-code-plugin-rest-api test
 
-      - name: Publish to GitHub Packages
-        run: pnpm --filter @tigz/claude-code-plugin-rest-api publish --no-git-checks
+      - name: Publish to npm
+        run: pnpm --filter @tigz/claude-code-plugin-rest-api publish --no-git-checks --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
