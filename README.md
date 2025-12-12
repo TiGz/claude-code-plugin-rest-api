@@ -241,9 +241,66 @@ The response includes `structuredOutput` with validated JSON:
 }
 ```
 
-## Plugin Discovery (Secondary Interface)
+### Custom MCP Tools Example
 
-The module also discovers file-based plugins from the filesystem:
+Create in-process MCP servers with custom tools using `createSdkMcpServer` and `tool`:
+
+```typescript
+import { ClaudePluginModule, createSdkMcpServer, tool, z } from '@tigz/claude-code-plugin-rest-api';
+
+// Create an in-process MCP server with custom tools
+const calculatorServer = createSdkMcpServer({
+  name: 'calculator',
+  version: '1.0.0',
+  tools: [
+    tool(
+      'add',
+      'Add two numbers together',
+      { a: z.number(), b: z.number() },
+      async (args) => ({
+        content: [{ type: 'text', text: `${args.a + args.b}` }],
+      }),
+    ),
+    tool(
+      'multiply',
+      'Multiply two numbers together',
+      { a: z.number(), b: z.number() },
+      async (args) => ({
+        content: [{ type: 'text', text: `${args.a * args.b}` }],
+      }),
+    ),
+  ],
+});
+
+@Module({
+  imports: [
+    ClaudePluginModule.forRoot({
+      agents: {
+        'calculator-agent': {
+          systemPrompt: 'Use the calculator tools to perform calculations.',
+          permissionMode: 'bypassPermissions',
+          mcpServers: {
+            calculator: calculatorServer,
+          },
+          // MCP tools follow the pattern: mcp__<server-name>__<tool-name>
+          allowedTools: ['mcp__calculator__add', 'mcp__calculator__multiply'],
+        },
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+MCP tools run in the same process as your NestJS application, enabling:
+- Custom business logic tools
+- Database access tools
+- External API integrations
+- Any async operation
+
+## Plugin Discovery (Optional)
+
+The module can also discover file-based plugins from the filesystem. Plugin endpoints are disabled by default - enable them with `enablePluginEndpoints: true`:
 
 ```
 .claude/plugins/
@@ -275,8 +332,9 @@ ClaudePluginModule.forRoot({
   // User-defined agents (primary interface)
   agents: { ... },
 
-  // Plugin discovery (secondary interface)
-  pluginDirectory: '.claude/plugins',  // Default
+  // Plugin discovery (disabled by default)
+  enablePluginEndpoints: false,        // Set true to enable /v1/plugins/* endpoints
+  pluginDirectory: '.claude/plugins',  // Directory for file-based plugins
   hotReload: false,                    // Enable in development
 
   // Global limits

@@ -55,6 +55,7 @@ users:
       @Module({
         imports: [
           ClaudePluginModule.forRoot({
+            enablePluginEndpoints: true,
             pluginDirectory: '.claude/plugins',
             hotReload: false,
             auth: {
@@ -166,6 +167,7 @@ users:
       @Module({
         imports: [
           ClaudePluginModule.forRoot({
+            enablePluginEndpoints: true,
             pluginDirectory: '.claude/plugins',
             hotReload: false,
             auth: { disabled: true },
@@ -218,6 +220,7 @@ users:
       @Module({
         imports: [
           ClaudePluginModule.forRoot({
+            enablePluginEndpoints: true,
             pluginDirectory: '.claude/plugins',
             hotReload: false,
             auth: {
@@ -271,6 +274,7 @@ users:
       @Module({
         imports: [
           ClaudePluginModule.forRoot({
+            enablePluginEndpoints: true,
             pluginDirectory: '.claude/plugins',
             hotReload: false,
             auth: {

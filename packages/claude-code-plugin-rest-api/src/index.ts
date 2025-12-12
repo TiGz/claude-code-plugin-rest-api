@@ -33,3 +33,9 @@ export { AgentController } from './controllers/agent.controller.js';
 export type { AuthUser, AuthProvider, AuthModuleOptions } from './auth/auth.types.js';
 export { YamlAuthProvider } from './auth/yaml-auth.provider.js';
 export { BasicAuthGuard } from './auth/auth.guard.js';
+
+// MCP tool creation (re-exported from Claude Agent SDK)
+export { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
+
+// Re-export zod for tool schema definitions
+export { z } from 'zod';

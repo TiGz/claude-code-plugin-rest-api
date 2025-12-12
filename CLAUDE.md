@@ -150,6 +150,7 @@ Local tests cover:
 - User-defined agent execution (request/response and streaming)
 - `permissionMode: 'bypassPermissions'` with full tool access
 - Structured output with `outputFormat` JSON schema validation
+- Custom MCP tools with in-process servers
 - Plugin agent and command execution
 
 ## AgentConfig Options
@@ -179,3 +180,40 @@ interface OutputFormat {
   schema: Record<string, unknown>;         // JSON Schema object
 }
 ```
+
+## Custom MCP Tools
+
+Create in-process MCP servers with custom tools using the re-exported SDK functions:
+
+```typescript
+import { createSdkMcpServer, tool, z } from '@tigz/claude-code-plugin-rest-api';
+
+const myServer = createSdkMcpServer({
+  name: 'my-tools',
+  version: '1.0.0',
+  tools: [
+    tool(
+      'my_tool',
+      'Description of what this tool does',
+      { param: z.string().describe('Parameter description') },
+      async (args) => ({
+        content: [{ type: 'text', text: `Result: ${args.param}` }],
+      }),
+    ),
+  ],
+});
+
+// Use in agent config
+ClaudePluginModule.forRoot({
+  agents: {
+    'my-agent': {
+      systemPrompt: 'Use the my_tool to help users.',
+      mcpServers: { 'my-tools': myServer },
+      allowedTools: ['mcp__my-tools__my_tool'],
+      permissionMode: 'bypassPermissions',
+    },
+  },
+})
+```
+
+MCP tool naming convention: `mcp__<server-name>__<tool-name>`

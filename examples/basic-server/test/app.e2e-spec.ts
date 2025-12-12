@@ -11,6 +11,7 @@ import { HealthController } from '../src/health.controller.js';
 @Module({
   imports: [
     ClaudePluginModule.forRoot({
+      enablePluginEndpoints: true,
       pluginDirectory: '.claude/plugins',
       hotReload: false,
       auth: { disabled: true },

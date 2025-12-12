@@ -2,8 +2,35 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, Module } from '@nestjs/common';
 import request from 'supertest';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
+import { ClaudePluginModule, createSdkMcpServer, tool, z } from '@tigz/claude-code-plugin-rest-api';
 import { HealthController } from '../src/health.controller.js';
+
+/**
+ * Create an in-process MCP server with custom tools.
+ * This runs in the same process as the NestJS application.
+ */
+const calculatorMcpServer = createSdkMcpServer({
+  name: 'calculator',
+  version: '1.0.0',
+  tools: [
+    tool(
+      'add',
+      'Add two numbers together',
+      { a: z.number().describe('First number'), b: z.number().describe('Second number') },
+      async (args) => ({
+        content: [{ type: 'text', text: `${args.a + args.b}` }],
+      }),
+    ),
+    tool(
+      'multiply',
+      'Multiply two numbers together',
+      { a: z.number().describe('First number'), b: z.number().describe('Second number') },
+      async (args) => ({
+        content: [{ type: 'text', text: `${args.a * args.b}` }],
+      }),
+    ),
+  ],
+});
 
 /**
  * Local-only integration tests for user-defined agents with full SDK options.
@@ -64,7 +91,29 @@ import { HealthController } from '../src/health.controller.js';
             },
           },
         },
+        // Agent with custom MCP tools (in-process)
+        'mcp-calculator': {
+          systemPrompt: 'You are a calculator assistant. Use the calculator MCP tools (add, multiply) to perform calculations. Always use the tools - do not calculate mentally. Return just the numeric result.',
+          maxTurns: 5,
+          maxBudgetUsd: 1.0,
+          permissionMode: 'bypassPermissions',
+          mcpServers: {
+            calculator: calculatorMcpServer,
+          },
+          allowedTools: ['mcp__calculator__add', 'mcp__calculator__multiply'],
+        },
+        // Agent that loads file-based plugins via SDK (NOT via plugin endpoints)
+        'plugin-user': {
+          systemPrompt: 'You are a helpful assistant. Answer questions concisely.',
+          maxTurns: 5,
+          maxBudgetUsd: 1.0,
+          permissionMode: 'bypassPermissions',
+          // Load plugin from filesystem - this works even with enablePluginEndpoints: false
+          plugins: [{ type: 'local', path: '.claude/plugins/example-plugin' }],
+        },
       },
+      // Note: enablePluginEndpoints is NOT set (defaults to false)
+      // This proves agents can still use plugins via the SDK's plugins option
     }),
   ],
   controllers: [HealthController],
@@ -94,12 +143,14 @@ describe('User-Defined Agents Integration (Local)', () => {
         .expect(200);
 
       expect(response.body).toHaveProperty('agents');
-      expect(response.body).toHaveProperty('count', 4);
+      expect(response.body).toHaveProperty('count', 6);
       expect(Array.isArray(response.body.agents)).toBe(true);
       expect(response.body.agents).toContain('math-helper');
       expect(response.body.agents).toContain('code-analyzer');
       expect(response.body.agents).toContain('full-access-agent');
       expect(response.body.agents).toContain('structured-output-agent');
+      expect(response.body.agents).toContain('mcp-calculator');
+      expect(response.body.agents).toContain('plugin-user');
     });
 
     it('GET /v1/agents/:name should return agent config', async () => {
@@ -246,6 +297,81 @@ describe('User-Defined Agents Integration (Local)', () => {
       expect(response.body.outputFormat).toHaveProperty('type', 'json_schema');
       expect(response.body.outputFormat).toHaveProperty('schema');
       expect(response.body.outputFormat.schema).toHaveProperty('properties');
+    });
+  });
+
+  describe('Custom MCP Tools', () => {
+    it('mcp-calculator should use custom add tool', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/mcp-calculator')
+        .send({
+          prompt: 'Use the add tool to calculate 17 + 25. Return just the number.',
+        });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toHaveProperty('result');
+      // The result should contain 42 (17 + 25)
+      expect(response.body.result).toContain('42');
+    }, 60000);
+
+    it('mcp-calculator should use custom multiply tool', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/mcp-calculator')
+        .send({
+          prompt: 'Use the multiply tool to calculate 6 * 7. Return just the number.',
+        });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toHaveProperty('result');
+      // The result should contain 42 (6 * 7)
+      expect(response.body.result).toContain('42');
+    }, 60000);
+
+    it('GET /v1/agents/mcp-calculator should show mcpServers in config', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/mcp-calculator')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('mcpServers');
+      expect(response.body.mcpServers).toHaveProperty('calculator');
+      expect(response.body).toHaveProperty('allowedTools');
+      expect(response.body.allowedTools).toContain('mcp__calculator__add');
+      expect(response.body.allowedTools).toContain('mcp__calculator__multiply');
+    });
+  });
+
+  describe('Plugin Endpoints Disabled', () => {
+    it('GET /v1/plugins should return 404 when enablePluginEndpoints is false', async () => {
+      // Since enablePluginEndpoints defaults to false, plugin endpoints should not be available
+      await request(app.getHttpServer())
+        .get('/v1/plugins')
+        .expect(404);
+    });
+
+    it('plugin-user agent should still work (loads plugins via SDK, not endpoints)', async () => {
+      // This agent uses the SDK's plugins option to load file-based plugins
+      // This works independently of enablePluginEndpoints
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/plugin-user')
+        .send({ prompt: 'What is 5 + 5? Answer with just the number.' });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toHaveProperty('result');
+      expect(response.body.result).toContain('10');
+    }, 60000);
+
+    it('GET /v1/agents/plugin-user should show plugins in config', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/plugin-user')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('plugins');
+      expect(Array.isArray(response.body.plugins)).toBe(true);
+      expect(response.body.plugins[0]).toHaveProperty('type', 'local');
+      expect(response.body.plugins[0]).toHaveProperty('path', '.claude/plugins/example-plugin');
     });
   });
 });

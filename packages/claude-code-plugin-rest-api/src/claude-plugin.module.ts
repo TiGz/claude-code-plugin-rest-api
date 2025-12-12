@@ -16,13 +16,22 @@ import { AgentConfig } from './types/plugin.types.js';
 
 export interface ClaudePluginModuleOptions {
   /**
+   * Enable plugin discovery and plugin-related endpoints (/v1/plugins/*)
+   * When false, only user-defined agents are available via /v1/agents/*
+   * @default false
+   */
+  enablePluginEndpoints?: boolean;
+
+  /**
    * Directory containing Claude Code plugins
+   * Only used when enablePluginEndpoints is true
    * @default '.claude/plugins'
    */
   pluginDirectory?: string;
 
   /**
    * Enable hot reload of plugins when files change
+   * Only used when enablePluginEndpoints is true
    * @default false
    */
   hotReload?: boolean;
@@ -98,7 +107,9 @@ export class ClaudePluginModule implements OnModuleInit {
    * Configure the Claude Plugin module with options
    */
   static forRoot(options: ClaudePluginModuleOptions = {}): DynamicModule {
+    const enablePluginEndpoints = options.enablePluginEndpoints ?? false;
     const resolvedOptions = {
+      enablePluginEndpoints,
       pluginDirectory: options.pluginDirectory ?? '.claude/plugins',
       hotReload: options.hotReload ?? false,
       maxTurns: options.maxTurns ?? 50,
@@ -112,13 +123,21 @@ export class ClaudePluginModule implements OnModuleInit {
       useValue: resolvedOptions,
     };
 
-    // Include AgentController if agents are configured
+    // Determine which controllers to include
     const hasAgents = options.agents && Object.keys(options.agents).length > 0;
-    const controllers = resolvedOptions.includeControllers
-      ? hasAgents
-        ? [PluginController, StreamController, AgentController]
-        : [PluginController, StreamController]
-      : [];
+    const controllers: any[] = [];
+    if (resolvedOptions.includeControllers) {
+      // Always include StreamController (used by both agents and plugins)
+      controllers.push(StreamController);
+      // Include AgentController if agents are configured
+      if (hasAgents) {
+        controllers.push(AgentController);
+      }
+      // Include PluginController only if plugin endpoints are enabled
+      if (enablePluginEndpoints) {
+        controllers.push(PluginController);
+      }
+    }
 
     // Auth configuration
     const authOptions: AuthModuleOptions = {
@@ -211,6 +230,7 @@ export class ClaudePluginModule implements OnModuleInit {
       useFactory: async (...args: unknown[]) => {
         const opts = await asyncOptions.useFactory(...args);
         return {
+          enablePluginEndpoints: opts.enablePluginEndpoints ?? false,
           pluginDirectory: opts.pluginDirectory ?? '.claude/plugins',
           hotReload: opts.hotReload ?? false,
           maxTurns: opts.maxTurns ?? 50,
@@ -289,7 +309,9 @@ export class ClaudePluginModule implements OnModuleInit {
         EventEmitterModule.forRoot(),
         ...(asyncOptions.imports as DynamicModule[] || []),
       ],
-      // Include all controllers - AgentController handles empty agents gracefully
+      // For async config, all controllers are included since we can't determine
+      // enablePluginEndpoints at module registration time. Use forRoot() for
+      // static configuration if you need to disable plugin endpoints.
       controllers: [PluginController, StreamController, AgentController],
       providers: [
         optionsProvider,
