@@ -1,5 +1,8 @@
 # Claude Code Plugin REST API
 
+[![npm version](https://img.shields.io/npm/v/@tigz/claude-code-plugin-rest-api.svg)](https://www.npmjs.com/package/@tigz/claude-code-plugin-rest-api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A NestJS module for building REST APIs powered by Claude agents. Define agents in code with full Claude Agent SDK options and expose them as HTTP endpoints.
 
 ## Features
@@ -17,23 +20,23 @@ A NestJS module for building REST APIs powered by Claude agents. Define agents i
 ### Prerequisites
 
 - Node.js 20+
-- pnpm
+- NestJS application
 - Claude Max subscription (run `claude login` to authenticate)
 
 ### Installation
 
 ```bash
-# Clone and install
-git clone https://github.com/tigz/claude-code-plugin-rest-api.git
-cd claude-code-plugin-rest-api
-pnpm install
+npm install @tigz/claude-code-plugin-rest-api
+# or
+pnpm add @tigz/claude-code-plugin-rest-api
+# or
+yarn add @tigz/claude-code-plugin-rest-api
+```
 
-# Build the library
-pnpm build
+You'll also need NestJS peer dependencies if not already installed:
 
-# Run the example server
-cd examples/basic-server
-pnpm dev
+```bash
+npm install @nestjs/common @nestjs/core rxjs
 ```
 
 ## User-Defined Agents (Primary Interface)

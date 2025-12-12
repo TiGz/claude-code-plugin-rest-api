@@ -1,5 +1,8 @@
 # Claude Code Plugin REST API
 
+[![npm version](https://img.shields.io/npm/v/@tigz/claude-code-plugin-rest-api.svg)](https://www.npmjs.com/package/@tigz/claude-code-plugin-rest-api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A NestJS module for building REST APIs powered by Claude agents. Define agents in code with full Claude Agent SDK options and expose them as HTTP endpoints.
 
 ## Features
