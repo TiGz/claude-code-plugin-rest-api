@@ -1,6 +1,6 @@
 {
   "name": "@tigz/claude-code-plugin-rest-api",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "NestJS module for exposing Claude Code plugins as REST APIs",
   "type": "module",
   "main": "dist/index.js",
