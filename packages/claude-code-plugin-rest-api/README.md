@@ -401,6 +401,51 @@ pnpm test:e2e
 pnpm test:local
 ```
 
+## Headless Server Authentication
+
+Claude Code requires browser-based OAuth for initial login. On headless servers/VPS without a browser, use one of these methods:
+
+### Method 1: SSH Port Forwarding (Recommended)
+
+Forward the OAuth callback port from your local machine:
+
+```bash
+# On your local machine, SSH to server with port forwarding
+ssh -L 8080:localhost:8080 user@your-server
+
+# On the server, run login
+claude login
+```
+
+The OAuth flow will open in your local browser, but the callback reaches the server through the tunnel.
+
+### Method 2: Copy Credentials
+
+Authenticate locally and transfer the credentials file:
+
+```bash
+# On your local machine
+claude login
+
+# Copy credentials to server
+scp ~/.config/claude-code/auth.json user@server:~/.config/claude-code/
+```
+
+### Method 3: Docker Volume Mount
+
+For containerized deployments, mount your local credentials:
+
+```bash
+docker run -v ~/.config/claude-code/auth.json:/root/.config/claude-code/auth.json:ro your-image
+```
+
+Or in docker-compose:
+
+```yaml
+volumes:
+  - ~/.config/claude-code/auth.json:/root/.config/claude-code/auth.json:ro
+```
+
 ## Docker
 
 ```bash
