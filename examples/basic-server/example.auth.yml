@@ -1,0 +1,16 @@
+# Copy this file to auth.yml and customize
+# WARNING: Do not commit auth.yml with real credentials!
+
+users:
+  # Plain text password (development only)
+  - username: admin
+    password: changeme
+
+  # Bcrypt hashed password (recommended for production)
+  # Generate with: npx bcrypt-cli hash "your-password"
+  # - username: api-user
+  #   password: $2b$10$abcdefghijklmnopqrstuv...
+
+  # Multiple users supported
+  # - username: readonly
+  #   password: readonly-pass

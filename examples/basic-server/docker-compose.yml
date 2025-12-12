@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: claude-plugin-api
+    ports:
+      - "3000:3000"
+    volumes:
+      # Source code for hot reload
+      - ./src:/app/src:ro
+      # Claude credentials from host
+      - ~/.claude:/root/.claude:ro
+      # Plugin directory - mount your plugins here
+      - ./.claude/plugins:/app/.claude/plugins:ro
+      # Auth configuration
+      - ./auth.yml:/app/auth.yml:ro
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - PLUGINS_DIRECTORY=.claude/plugins
+      - PLUGINS_HOT_RELOAD=true
+      - CLAUDE_MAX_TURNS=50
+      - CLAUDE_MAX_BUDGET_USD=10
+    restart: unless-stopped
