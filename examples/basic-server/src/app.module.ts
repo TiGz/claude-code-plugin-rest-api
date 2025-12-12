@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ClaudePluginModule } from '@tigz/claude-code-plugin-api';
+import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
 import { HealthController } from './health.controller.js';
 
 @Module({

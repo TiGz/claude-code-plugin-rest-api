@@ -1,14 +1,14 @@
 {
-  "name": "claude-code-plugin-api-monorepo",
+  "name": "claude-code-plugin-rest-api-monorepo",
   "private": true,
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter @tigz/claude-code-plugin-api dev",
+    "dev": "pnpm --filter @tigz/claude-code-plugin-rest-api dev",
     "dev:example": "pnpm --filter basic-server dev",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter basic-server test:e2e",
     "lint": "pnpm -r lint",
-    "publish:lib": "pnpm --filter @tigz/claude-code-plugin-api publish"
+    "publish:lib": "pnpm --filter @tigz/claude-code-plugin-rest-api publish"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

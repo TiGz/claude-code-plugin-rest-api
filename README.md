@@ -1,4 +1,4 @@
-# Claude Code Plugin API
+# Claude Code Plugin REST API
 
 A NestJS module for exposing Claude Code plugins as REST API endpoints. Build HTTP services powered by Claude agents using the Claude Agent SDK.
 
@@ -22,8 +22,8 @@ A NestJS module for exposing Claude Code plugins as REST API endpoints. Build HT
 
 ```bash
 # Clone and install
-git clone https://github.com/tigz/claude-code-plugin-api.git
-cd claude-code-plugin-api
+git clone https://github.com/tigz/claude-code-plugin-rest-api.git
+cd claude-code-plugin-rest-api
 pnpm install
 
 # Build the library
@@ -38,7 +38,7 @@ pnpm dev
 
 ```typescript
 import { Module } from '@nestjs/common';
-import { ClaudePluginModule } from '@tigz/claude-code-plugin-api';
+import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
 
 @Module({
   imports: [
@@ -196,7 +196,7 @@ docker-compose up
 ```
 .
 ├── packages/
-│   └── claude-code-plugin-api/   # Core NestJS module
+│   └── claude-code-plugin-rest-api/   # Core NestJS module
 ├── examples/
 │   └── basic-server/             # Example implementation
 └── plans/                        # Design documents

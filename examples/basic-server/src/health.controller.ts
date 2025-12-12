@@ -1,5 +1,5 @@
 import { Controller, Get, Optional } from '@nestjs/common';
-import { PluginDiscoveryService } from '@tigz/claude-code-plugin-api';
+import { PluginDiscoveryService } from '@tigz/claude-code-plugin-rest-api';
 
 @Controller('health')
 export class HealthController {

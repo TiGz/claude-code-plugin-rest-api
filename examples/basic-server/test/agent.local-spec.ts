@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, Module } from '@nestjs/common';
 import request from 'supertest';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { ClaudePluginModule } from '@tigz/claude-code-plugin-api';
+import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
 import { HealthController } from '../src/health.controller.js';
 
 /**

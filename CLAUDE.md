@@ -11,7 +11,7 @@ A pnpm monorepo template for building REST APIs using NestJS that expose Claude 
 ```
 .
 ├── packages/
-│   └── claude-code-plugin-api/    # Core NestJS module library
+│   └── claude-code-plugin-rest-api/    # Core NestJS module library
 │       └── src/
 │           ├── auth/              # Basic auth guard and YAML provider
 │           ├── controllers/       # Plugin, stream, and files controllers
@@ -33,7 +33,7 @@ pnpm install
 
 # Build
 pnpm build                    # Build all packages
-pnpm --filter @tigz/claude-code-plugin-api build  # Build library only
+pnpm --filter @tigz/claude-code-plugin-rest-api build  # Build library only
 
 # Development (in examples/basic-server)
 pnpm dev                      # Start with hot reload
