@@ -22,6 +22,7 @@ export type {
   PermissionMode,
   ToolsConfig,
   PluginPath,
+  OutputFormat,
 } from './types/plugin.types.js';
 
 // Controllers (for custom routing)

@@ -60,6 +60,7 @@ export class AgentService {
             type: 'result';
             is_error?: boolean;
             result?: string;
+            structured_output?: unknown;
             total_cost_usd?: number;
             num_turns?: number;
             usage?: { input_tokens?: number; output_tokens?: number };
@@ -67,6 +68,7 @@ export class AgentService {
           finalResult = {
             success: !resultMessage.is_error,
             result: resultMessage.result,
+            structuredOutput: resultMessage.structured_output,
             cost: resultMessage.total_cost_usd,
             turns: resultMessage.num_turns,
             usage: resultMessage.usage
@@ -164,6 +166,9 @@ export class AgentService {
 
       // Beta features
       ...(config.betas && { betas: config.betas }),
+
+      // Structured output format
+      ...(config.outputFormat && { outputFormat: config.outputFormat }),
     };
   }
 }

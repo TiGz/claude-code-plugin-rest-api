@@ -46,6 +46,24 @@ import { HealthController } from '../src/health.controller.js';
           maxTurns: 5,
           maxBudgetUsd: 2.0,
         },
+        'structured-output-agent': {
+          systemPrompt: 'You analyze numbers and return structured JSON results. Always respond with valid JSON matching the schema.',
+          maxTurns: 5,
+          maxBudgetUsd: 1.0,
+          outputFormat: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                number: { type: 'number' },
+                isEven: { type: 'boolean' },
+                doubled: { type: 'number' },
+              },
+              required: ['number', 'isEven', 'doubled'],
+              additionalProperties: false,
+            },
+          },
+        },
       },
     }),
   ],
@@ -76,11 +94,12 @@ describe('User-Defined Agents Integration (Local)', () => {
         .expect(200);
 
       expect(response.body).toHaveProperty('agents');
-      expect(response.body).toHaveProperty('count', 3);
+      expect(response.body).toHaveProperty('count', 4);
       expect(Array.isArray(response.body.agents)).toBe(true);
       expect(response.body.agents).toContain('math-helper');
       expect(response.body.agents).toContain('code-analyzer');
       expect(response.body.agents).toContain('full-access-agent');
+      expect(response.body.agents).toContain('structured-output-agent');
     });
 
     it('GET /v1/agents/:name should return agent config', async () => {
@@ -188,5 +207,45 @@ describe('User-Defined Agents Integration (Local)', () => {
       const result = response.body.result.toLowerCase();
       expect(result).toMatch(/arrow|=>|function/);
     }, 60000);
+  });
+
+  describe('Structured Output', () => {
+    it('structured-output-agent should return validated JSON in structuredOutput', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/structured-output-agent')
+        .send({
+          prompt: 'Analyze the number 42. Return the number, whether it is even, and what it equals when doubled.',
+        });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('success', true);
+
+      // Verify structuredOutput is present and matches schema
+      expect(response.body).toHaveProperty('structuredOutput');
+      const output = response.body.structuredOutput;
+
+      expect(output).toHaveProperty('number');
+      expect(typeof output.number).toBe('number');
+      expect(output.number).toBe(42);
+
+      expect(output).toHaveProperty('isEven');
+      expect(typeof output.isEven).toBe('boolean');
+      expect(output.isEven).toBe(true);
+
+      expect(output).toHaveProperty('doubled');
+      expect(typeof output.doubled).toBe('number');
+      expect(output.doubled).toBe(84);
+    }, 60000);
+
+    it('GET /v1/agents/structured-output-agent should show outputFormat in config', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/structured-output-agent')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('outputFormat');
+      expect(response.body.outputFormat).toHaveProperty('type', 'json_schema');
+      expect(response.body.outputFormat).toHaveProperty('schema');
+      expect(response.body.outputFormat.schema).toHaveProperty('properties');
+    });
   });
 });

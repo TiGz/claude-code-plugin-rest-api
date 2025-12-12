@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A pnpm monorepo template for building REST APIs using NestJS that expose Claude Code plugins as HTTP endpoints. Uses the Claude Agent SDK with Claude Max subscription support via terminal-based authentication.
+A pnpm monorepo template for building REST APIs using NestJS that expose Claude agents as HTTP endpoints. Uses the Claude Agent SDK with Claude Max subscription support via terminal-based authentication.
+
+**Primary Interface**: User-defined agents configured in code with full SDK options, exposed via `/v1/agents/:name` endpoints.
 
 ## Monorepo Structure
 
@@ -14,13 +16,13 @@ A pnpm monorepo template for building REST APIs using NestJS that expose Claude 
 │   └── claude-code-plugin-rest-api/    # Core NestJS module library
 │       └── src/
 │           ├── auth/              # Basic auth guard and YAML provider
-│           ├── controllers/       # Plugin, stream, and files controllers
-│           ├── services/          # Discovery, execution, and session services
+│           ├── controllers/       # Plugin, stream, and agent controllers
+│           ├── services/          # Discovery, execution, agent, and session services
 │           └── types/             # TypeScript interfaces
 ├── examples/
 │   └── basic-server/              # Example NestJS application
 │       ├── src/                   # App module, main entry, health controller
-│       ├── test/                  # E2E and local integration tests
+│       ├── test/                  # E2E, auth, and local integration tests
 │       └── .claude/plugins/       # Example plugin with agents and commands
 └── plans/                         # Implementation planning documents
 ```
@@ -58,13 +60,38 @@ pnpm test:local               # Run local tests (requires Claude Max login)
 ### Key Components
 
 **ClaudePluginModule** - Dynamic NestJS module that provides:
+- `AgentService` - Executes user-defined agents with full SDK options
 - `PluginDiscoveryService` - Discovers plugins from filesystem
-- `PluginExecutionService` - Executes agents/commands via Claude SDK
+- `PluginExecutionService` - Executes plugin agents/commands via Claude SDK
 - `StreamSessionService` - Manages SSE streaming sessions
-- Built-in controllers for `/v1/plugins/*` endpoints
+- Built-in controllers for `/v1/agents/*` and `/v1/plugins/*` endpoints
 - Optional basic auth with YAML or custom providers
 
-### Plugin Structure
+### User-Defined Agents (Primary Interface)
+
+Define agents programmatically in code with full Claude Agent SDK options:
+
+```typescript
+ClaudePluginModule.forRoot({
+  agents: {
+    'code-assistant': {
+      systemPrompt: 'You are a helpful coding assistant.',
+      permissionMode: 'bypassPermissions',
+      tools: { type: 'preset', preset: 'claude_code' },
+      maxTurns: 20,
+      maxBudgetUsd: 5.0,
+    },
+    'read-only-analyst': {
+      systemPrompt: 'Analyze code without making changes.',
+      allowedTools: ['Read', 'Glob', 'Grep'],
+      permissionMode: 'default',
+    },
+  },
+})
+```
+
+### Plugin Structure (Secondary Interface)
+
 Plugins live in `.claude/plugins/<plugin-name>/` with:
 - `.claude-plugin/plugin.json` - Manifest file
 - `agents/*.md` - Agent definitions with frontmatter
@@ -73,13 +100,29 @@ Plugins live in `.claude/plugins/<plugin-name>/` with:
 
 ## API Endpoints
 
+### User-Defined Agents (Primary)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/agents` | List all user-defined agents |
+| GET | `/v1/agents/:name` | Get agent config |
+| POST | `/v1/agents/:name` | Execute agent (request/response) |
+| POST | `/v1/agents/:name/stream` | Create SSE stream session |
+
+### Plugin Discovery (Secondary)
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/v1/plugins` | List all discovered plugins |
 | GET | `/v1/plugins/:name` | Get plugin details |
-| POST | `/v1/plugins/:plugin/agents/:agent` | Execute agent |
+| POST | `/v1/plugins/:plugin/agents/:agent` | Execute plugin agent |
 | POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
 | POST | `/v1/plugins/stream` | Create SSE stream session |
+
+### Streaming
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/v1/stream/:sessionId` | Consume SSE stream |
 
 ## Claude Max Authentication
@@ -91,5 +134,48 @@ The project uses terminal-based authentication for Claude Max subscription:
 
 ## Testing Strategy
 
+- **Unit tests** (`pnpm test` in packages): Test services and providers in isolation
 - **E2E tests** (`test:e2e`): Test API endpoints without requiring Claude credentials. Safe for CI.
+- **Auth tests**: Verify authentication guard and excluded paths
 - **Local tests** (`test:local`): Full integration tests that execute real Claude agents. Requires `claude login`.
+
+**IMPORTANT**: When making changes to agent execution, SDK options, or API responses, you MUST run the local tests to verify the changes work with real Claude API calls:
+
+```bash
+cd examples/basic-server
+pnpm test:local
+```
+
+Local tests cover:
+- User-defined agent execution (request/response and streaming)
+- `permissionMode: 'bypassPermissions'` with full tool access
+- Structured output with `outputFormat` JSON schema validation
+- Plugin agent and command execution
+
+## AgentConfig Options
+
+Full SDK options available for user-defined agents:
+
+```typescript
+interface AgentConfig {
+  systemPrompt: string;                    // Required: Agent's system prompt
+  model?: string;                          // Model to use (default: claude-sonnet-4-5)
+  workingDirectory?: string;               // Agent's working directory
+  plugins?: PluginPath[];                  // Additional plugins to load
+  mcpServers?: Record<string, any>;        // Custom MCP servers
+  tools?: ToolsConfig;                     // Tools preset or explicit list
+  allowedTools?: string[];                 // Tool allowlist
+  disallowedTools?: string[];              // Tools to block
+  permissionMode?: PermissionMode;         // 'default' | 'acceptEdits' | 'bypassPermissions'
+  settingSources?: ('user'|'project'|'local')[];  // Load settings from filesystem
+  maxTurns?: number;                       // Max conversation turns
+  maxBudgetUsd?: number;                   // Max budget in USD
+  outputFormat?: OutputFormat;             // JSON schema for structured output
+  betas?: string[];                        // Beta features to enable
+}
+
+interface OutputFormat {
+  type: 'json_schema';
+  schema: Record<string, unknown>;         // JSON Schema object
+}
+```

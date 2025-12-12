@@ -1,12 +1,14 @@
 # Claude Code Plugin REST API
 
-A NestJS module for exposing Claude Code plugins as REST API endpoints. Build HTTP services powered by Claude agents using the Claude Agent SDK.
+A NestJS module for building REST APIs powered by Claude agents. Define agents in code with full Claude Agent SDK options and expose them as HTTP endpoints.
 
 ## Features
 
-- **Plugin Discovery**: Automatically discovers and loads Claude Code plugins from the filesystem
-- **REST API**: Exposes plugins as HTTP endpoints with Swagger documentation
+- **User-Defined Agents**: Configure agents programmatically with full SDK options
+- **Full SDK Support**: permissionMode, tools presets, MCP servers, plugins, and more
+- **REST API**: Each agent gets its own `/v1/agents/:name` endpoint
 - **SSE Streaming**: Real-time streaming responses via Server-Sent Events
+- **Plugin Discovery**: Also supports file-based Claude Code plugins
 - **Authentication**: Built-in basic auth with YAML config or custom providers
 - **Claude Max Support**: Works with Claude Max subscription via terminal login
 
@@ -34,7 +36,9 @@ cd examples/basic-server
 pnpm dev
 ```
 
-### Using the Module
+## User-Defined Agents (Primary Interface)
+
+Define agents in your NestJS module with full Claude Agent SDK options:
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -43,51 +47,203 @@ import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
 @Module({
   imports: [
     ClaudePluginModule.forRoot({
-      pluginDirectory: '.claude/plugins',
-      hotReload: process.env.NODE_ENV === 'development',
-      // auth: { disabled: true }, // Disable auth for development
+      agents: {
+        // Full-access agent with all tools pre-approved
+        'uber-agent': {
+          systemPrompt: 'You are a powerful coding assistant with full access.',
+          permissionMode: 'bypassPermissions',
+          tools: { type: 'preset', preset: 'claude_code' },
+          maxTurns: 50,
+          maxBudgetUsd: 10.0,
+        },
+
+        // Read-only analyst - can only read, not modify
+        'code-reviewer': {
+          systemPrompt: 'Review code for quality, security, and best practices.',
+          allowedTools: ['Read', 'Glob', 'Grep'],
+          permissionMode: 'default',
+          maxTurns: 20,
+        },
+
+        // Task executor with custom MCP servers
+        'task-runner': {
+          systemPrompt: 'Execute tasks autonomously.',
+          permissionMode: 'bypassPermissions',
+          tools: { type: 'preset', preset: 'claude_code' },
+          mcpServers: {
+            database: myDatabaseMcpServer,
+            slack: mySlackMcpServer,
+          },
+        },
+      },
     }),
   ],
 })
 export class AppModule {}
 ```
 
-## API Endpoints
+### Agent API Endpoints
+
+Each agent is automatically exposed via REST endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/v1/plugins` | List all discovered plugins |
-| GET | `/v1/plugins/:name` | Get plugin details with available agents/commands |
-| POST | `/v1/plugins/:plugin/agents/:agent` | Execute an agent |
-| POST | `/v1/plugins/:plugin/commands/:cmd` | Execute a command |
-| POST | `/v1/plugins/stream` | Create an SSE stream session |
+| GET | `/v1/agents` | List all user-defined agents |
+| GET | `/v1/agents/:name` | Get agent configuration |
+| POST | `/v1/agents/:name` | Execute agent (request/response) |
+| POST | `/v1/agents/:name/stream` | Create SSE stream session |
 | GET | `/v1/stream/:sessionId` | Consume SSE stream |
 
-### Example: Execute an Agent
+### Execute an Agent
 
 ```bash
-curl -X POST http://localhost:3000/v1/plugins/example-plugin/agents/code-helper \
+# Request/Response mode
+curl -X POST http://localhost:3000/v1/agents/uber-agent \
   -H "Content-Type: application/json" \
   -H "Authorization: Basic $(echo -n 'admin:password' | base64)" \
-  -d '{"prompt": "What is 2 + 2?"}'
+  -d '{"prompt": "Refactor the auth module to use JWT"}'
+
+# Response
+{
+  "success": true,
+  "result": "I've refactored the auth module...",
+  "cost": 0.05,
+  "turns": 3,
+  "usage": { "inputTokens": 1234, "outputTokens": 567 }
+}
 ```
 
-### Example: Stream Responses
+### Stream Agent Responses
 
 ```bash
-# Create stream session
-SESSION=$(curl -s -X POST http://localhost:3000/v1/plugins/stream \
+# 1. Create stream session
+SESSION=$(curl -s -X POST http://localhost:3000/v1/agents/uber-agent/stream \
   -H "Content-Type: application/json" \
-  -d '{"pluginName": "example-plugin", "agentName": "code-helper", "prompt": "Hello"}' \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)" \
+  -d '{"prompt": "Explain this codebase"}' \
   | jq -r '.sessionId')
 
-# Consume stream
-curl -N http://localhost:3000/v1/stream/$SESSION
+# 2. Consume SSE stream
+curl -N http://localhost:3000/v1/stream/$SESSION \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)"
 ```
 
-## Plugin Structure
+## AgentConfig Options
 
-Plugins are discovered from the configured `pluginDirectory` (default: `.claude/plugins`).
+Full Claude Agent SDK options available:
+
+```typescript
+interface AgentConfig {
+  // Required
+  systemPrompt: string;              // Agent's system prompt
+
+  // Model & Directory
+  model?: string;                    // Model (default: claude-sonnet-4-5)
+  workingDirectory?: string;         // Agent's working directory
+
+  // Tools Configuration
+  tools?: ToolsConfig;               // Preset or explicit list
+  allowedTools?: string[];           // Tool allowlist (alternative to tools)
+  disallowedTools?: string[];        // Tools to block
+
+  // Permissions
+  permissionMode?: PermissionMode;   // 'default' | 'acceptEdits' | 'bypassPermissions'
+
+  // Extensions
+  plugins?: PluginPath[];            // Additional plugins to load
+  mcpServers?: Record<string, any>;  // Custom MCP servers
+  settingSources?: ('user' | 'project' | 'local')[];
+
+  // Limits
+  maxTurns?: number;                 // Max conversation turns
+  maxBudgetUsd?: number;             // Max budget in USD
+
+  // Structured Output
+  outputFormat?: OutputFormat;       // JSON schema for validated output
+
+  // Beta Features
+  betas?: string[];                  // e.g., ['context-1m-2025-08-07']
+}
+
+// Tools can be a preset or explicit list
+type ToolsConfig = string[] | { type: 'preset'; preset: 'claude_code' };
+
+// Permission modes
+type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+
+// Structured output format
+interface OutputFormat {
+  type: 'json_schema';
+  schema: Record<string, unknown>;   // JSON Schema object
+}
+```
+
+### Key Options Explained
+
+- **`permissionMode: 'bypassPermissions'`**: Pre-approves all tool uses - no confirmation needed
+- **`tools: { type: 'preset', preset: 'claude_code' }`**: Enables all Claude Code built-in tools
+- **`allowedTools`**: Restrict agent to specific tools only
+- **`mcpServers`**: Add custom MCP servers for database, APIs, etc.
+- **`settingSources`**: Load skills from user/project settings
+- **`outputFormat`**: Enforce structured JSON output with schema validation
+
+### Structured Output Example
+
+Use `outputFormat` to get validated JSON responses:
+
+```typescript
+ClaudePluginModule.forRoot({
+  agents: {
+    'code-analyzer': {
+      systemPrompt: 'Analyze code and return structured results.',
+      outputFormat: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string' },
+            score: { type: 'number', minimum: 0, maximum: 10 },
+            issues: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+                  message: { type: 'string' },
+                  line: { type: 'number' }
+                },
+                required: ['severity', 'message']
+              }
+            }
+          },
+          required: ['summary', 'score'],
+          additionalProperties: false
+        }
+      }
+    }
+  }
+})
+```
+
+The response includes `structuredOutput` with validated JSON:
+
+```json
+{
+  "success": true,
+  "result": "...",
+  "structuredOutput": {
+    "summary": "Well-structured code with minor issues",
+    "score": 8,
+    "issues": [
+      { "severity": "low", "message": "Consider adding type annotations", "line": 42 }
+    ]
+  }
+}
+```
+
+## Plugin Discovery (Secondary Interface)
+
+The module also discovers file-based plugins from the filesystem:
 
 ```
 .claude/plugins/
@@ -96,35 +252,19 @@ Plugins are discovered from the configured `pluginDirectory` (default: `.claude/
     │   └── plugin.json        # Plugin manifest
     ├── agents/
     │   └── my-agent.md        # Agent definition
-    ├── commands/
-    │   └── my-command.md      # Command definition
-    └── skills/
-        └── my-skill/
-            └── SKILL.md       # Skill definition
+    └── commands/
+        └── my-command.md      # Command definition
 ```
 
-### Plugin Manifest (`plugin.json`)
+### Plugin API Endpoints
 
-```json
-{
-  "name": "my-plugin",
-  "version": "1.0.0",
-  "description": "My custom plugin"
-}
-```
-
-### Agent Definition (`agents/my-agent.md`)
-
-```markdown
----
-name: my-agent
-description: A helpful coding assistant
-tools: Read,Write,Glob,Grep
-model: claude-sonnet-4-20250514
----
-
-You are a helpful coding assistant. Help users with their programming questions.
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/plugins` | List all discovered plugins |
+| GET | `/v1/plugins/:name` | Get plugin details |
+| POST | `/v1/plugins/:plugin/agents/:agent` | Execute plugin agent |
+| POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
+| POST | `/v1/plugins/stream` | Create SSE stream session |
 
 ## Configuration
 
@@ -132,25 +272,41 @@ You are a helpful coding assistant. Help users with their programming questions.
 
 ```typescript
 ClaudePluginModule.forRoot({
-  // Directory containing plugins (default: '.claude/plugins')
-  pluginDirectory: '.claude/plugins',
+  // User-defined agents (primary interface)
+  agents: { ... },
 
-  // Enable hot reload when plugin files change (default: false)
-  hotReload: false,
+  // Plugin discovery (secondary interface)
+  pluginDirectory: '.claude/plugins',  // Default
+  hotReload: false,                    // Enable in development
 
-  // Maximum agent turns (default: 50)
-  maxTurns: 50,
+  // Global limits
+  maxTurns: 50,                        // Default max turns
+  maxBudgetUsd: 10.0,                  // Default budget
 
-  // Maximum budget per execution in USD (default: 10.0)
-  maxBudgetUsd: 10.0,
-
-  // Authentication options
+  // Authentication
   auth: {
-    disabled: false,           // Set true to disable auth
-    authFilePath: 'auth.yml',  // Path to YAML auth config
-    excludePaths: ['/health'], // Paths to exclude from auth
-    provider: customProvider,  // Custom auth provider
+    disabled: false,                   // Set true to disable auth
+    authFilePath: 'auth.yml',          // Path to YAML auth config
+    excludePaths: ['/health'],         // Paths to exclude from auth
+    provider: customProvider,          // Custom auth provider
   },
+})
+```
+
+### Async Configuration
+
+```typescript
+ClaudePluginModule.forRootAsync({
+  useFactory: (config: ConfigService) => ({
+    agents: {
+      'my-agent': {
+        systemPrompt: config.get('AGENT_PROMPT'),
+        permissionMode: 'bypassPermissions',
+      },
+    },
+    auth: { disabled: config.get('DISABLE_AUTH') === 'true' },
+  }),
+  inject: [ConfigService],
 })
 ```
 
@@ -198,8 +354,8 @@ docker-compose up
 ├── packages/
 │   └── claude-code-plugin-rest-api/   # Core NestJS module
 ├── examples/
-│   └── basic-server/             # Example implementation
-└── plans/                        # Design documents
+│   └── basic-server/                  # Example implementation
+└── plans/                             # Design documents
 ```
 
 ## License

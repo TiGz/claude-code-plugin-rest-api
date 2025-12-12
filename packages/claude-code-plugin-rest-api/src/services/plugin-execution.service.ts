@@ -38,6 +38,8 @@ export interface ExecutionOptions {
 export interface ExecutionResult {
   success: boolean;
   result?: string;
+  /** Structured output when outputFormat is configured (validated JSON) */
+  structuredOutput?: unknown;
   error?: string;
   cost?: number;
   turns?: number;

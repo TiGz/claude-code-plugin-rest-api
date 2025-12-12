@@ -70,6 +70,16 @@ export interface PluginPath {
 }
 
 /**
+ * JSON Schema output format for structured agent responses.
+ * Enforces validated JSON outputs after tool-using workflows.
+ */
+export interface OutputFormat {
+  type: 'json_schema';
+  /** JSON Schema object that the agent's output must conform to */
+  schema: Record<string, unknown>;
+}
+
+/**
  * Full SDK options for user-defined agents.
  * These agents are defined programmatically and exposed via /v1/agents/:name
  */
@@ -104,4 +114,9 @@ export interface AgentConfig {
   maxBudgetUsd?: number;
   /** Beta features to enable (e.g., 'context-1m-2025-08-07') */
   betas?: ('context-1m-2025-08-07')[];
+  /**
+   * Output format for structured JSON responses.
+   * When set, the agent's final result must conform to the provided JSON schema.
+   */
+  outputFormat?: OutputFormat;
 }
