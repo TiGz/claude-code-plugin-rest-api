@@ -32,3 +32,44 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  auto-release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'elease')
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from package.json
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./packages/claude-code-plugin-rest-api/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.get_version.outputs.tag }}
+          git push origin ${{ steps.get_version.outputs.tag }}
+
+      - name: Skip tag creation
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          echo "Tag ${{ steps.get_version.outputs.tag }} already exists, skipping tag creation"
