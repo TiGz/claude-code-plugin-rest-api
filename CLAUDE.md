@@ -109,6 +109,8 @@ Plugins live in `.claude/plugins/<plugin-name>/` with:
 | POST | `/v1/agents/:name` | Execute agent (request/response) |
 | POST | `/v1/agents/:name/stream` | Create SSE stream session |
 
+**Raw Response Mode**: For agents with `outputFormat` defined, the API defaults to returning the structured JSON directly (`rawResponse: true`). This can be overridden by explicitly setting `rawResponse: false` in the request body. For agents without `outputFormat`, the default is to return wrapped responses with metadata.
+
 ### Plugin Discovery (Secondary)
 
 | Method | Endpoint | Description |

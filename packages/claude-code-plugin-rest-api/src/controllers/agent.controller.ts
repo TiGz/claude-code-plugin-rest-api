@@ -20,6 +20,8 @@ class ExecuteAgentDto {
   prompt!: string;
   /**
    * When true, returns the agent's output directly without wrapper.
+   * For agents with outputFormat, defaults to true (returns structured JSON directly).
+   * For other agents, defaults to false (returns wrapped response with metadata).
    * Content-Type is auto-detected: JSON if parseable, otherwise text/plain.
    */
   rawResponse?: boolean;
@@ -77,6 +79,7 @@ export class AgentController {
    * Execute an agent (request/response mode)
    *
    * By default, returns a wrapped response with metadata (success, result, cost, turns, usage).
+   * For agents with outputFormat, rawResponse defaults to true (returns structured JSON directly).
    * When `rawResponse: true`, returns the agent's output directly with auto-detected Content-Type.
    */
   @Post(':name')
@@ -92,6 +95,12 @@ export class AgentController {
   ) {
     this.logger.log(`Executing agent: ${name}`);
 
+    // Get agent config to check for outputFormat
+    const config = this.agentService.getAgentConfig(name);
+    if (!config) {
+      throw new NotFoundException(`Agent '${name}' not found`);
+    }
+
     const result = await this.agentService.execute(name, dto.prompt);
 
     if (!result.success && result.error?.includes('not found')) {
@@ -105,15 +114,26 @@ export class AgentController {
       );
     }
 
+    // Default rawResponse to true for agents with outputFormat
+    const shouldReturnRaw = dto.rawResponse ?? (config.outputFormat !== undefined);
+
     // Handle raw response mode with auto-detect Content-Type
-    if (dto.rawResponse && result.result) {
-      try {
-        const parsed = JSON.parse(result.result);
+    if (shouldReturnRaw) {
+      // For structured output, prefer structuredOutput over result
+      if (result.structuredOutput !== undefined) {
         res.setHeader('Content-Type', 'application/json');
-        return parsed;
-      } catch {
-        res.setHeader('Content-Type', 'text/plain');
-        return result.result;
+        return result.structuredOutput;
+      }
+
+      if (result.result) {
+        try {
+          const parsed = JSON.parse(result.result);
+          res.setHeader('Content-Type', 'application/json');
+          return parsed;
+        } catch {
+          res.setHeader('Content-Type', 'text/plain');
+          return result.result;
+        }
       }
     }
 

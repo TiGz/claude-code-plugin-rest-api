@@ -244,6 +244,50 @@ The response includes `structuredOutput` with validated JSON:
 }
 ```
 
+#### Raw Response Mode
+
+For agents with `outputFormat`, the API automatically returns the structured JSON directly (raw response mode). You can override this behavior:
+
+```bash
+# Default behavior - returns structured JSON directly
+curl -X POST http://localhost:3000/v1/agents/code-analyzer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Analyze the number 42"}'
+
+# Returns:
+{
+  "summary": "Well-structured code with minor issues",
+  "score": 8,
+  "issues": [...]
+}
+
+# Get wrapped response with metadata instead
+curl -X POST http://localhost:3000/v1/agents/code-analyzer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Analyze the number 42", "rawResponse": false}'
+
+# Returns:
+{
+  "success": true,
+  "result": "...",
+  "structuredOutput": { "summary": "...", "score": 8, ... },
+  "cost": 0.02,
+  "turns": 1,
+  "usage": { "inputTokens": 123, "outputTokens": 45 }
+}
+```
+
+For agents without `outputFormat`, you can still enable raw response mode:
+
+```bash
+curl -X POST http://localhost:3000/v1/agents/math-helper \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is 2+2?", "rawResponse": true}'
+
+# Returns just the text response:
+The answer is 4.
+```
+
 ### Custom MCP Tools Example
 
 Create in-process MCP servers with custom tools using `createSdkMcpServer` and `tool`:
