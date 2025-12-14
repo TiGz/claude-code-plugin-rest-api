@@ -134,6 +134,30 @@ The project uses terminal-based authentication for Claude Max subscription:
 2. Credentials are stored locally and reused by the Agent SDK
 3. No browser-based OAuth or API keys required
 
+### Headless Server Authentication
+
+On servers without a browser, use one of these methods:
+
+**SSH Port Forwarding (Recommended)**:
+```bash
+# SSH to server with port forwarding
+ssh -L 8080:localhost:8080 user@your-server
+
+# On the server, run login
+claude login
+```
+
+**Copy Credentials**:
+```bash
+# Authenticate locally, then copy to server
+scp ~/.config/claude-code/auth.json user@server:~/.config/claude-code/
+```
+
+**Docker Volume Mount**:
+```bash
+docker run -v ~/.config/claude-code/auth.json:/root/.config/claude-code/auth.json:ro your-image
+```
+
 ## Testing Strategy
 
 - **Unit tests** (`pnpm test` in packages): Test services and providers in isolation
@@ -219,3 +243,46 @@ ClaudePluginModule.forRoot({
 ```
 
 MCP tool naming convention: `mcp__<server-name>__<tool-name>`
+
+## Module Configuration Options
+
+```typescript
+ClaudePluginModule.forRoot({
+  // User-defined agents (primary interface)
+  agents: { ... },
+
+  // Plugin discovery (disabled by default)
+  enablePluginEndpoints: false,        // Set true to enable /v1/plugins/* endpoints
+  pluginDirectory: '.claude/plugins',  // Directory for file-based plugins
+  hotReload: false,                    // Enable in development
+
+  // Global limits
+  maxTurns: 50,                        // Default max turns
+  maxBudgetUsd: 10.0,                  // Default budget
+
+  // Authentication
+  auth: {
+    disabled: false,                   // Set true to disable auth
+    authFilePath: 'auth.yml',          // Path to YAML auth config
+    excludePaths: ['/health'],         // Paths to exclude from auth
+    provider: customProvider,          // Custom auth provider
+  },
+})
+```
+
+## Release Process
+
+The project uses automated releases via GitHub Actions:
+
+1. **Manual release** using the release script:
+   ```bash
+   ./scripts/release.sh 1.2.3
+   ```
+   This updates `package.json`, commits, creates a tag, and pushes to trigger the publish workflow.
+
+2. **Auto-release** via commit message: Any push to `main` with "release" (case insensitive) in the commit message will:
+   - Extract version from `package.json`
+   - Create a git tag if it doesn't exist
+   - Trigger the npm publish workflow
+
+The npm package is published as `@tigz/claude-code-plugin-rest-api`.
