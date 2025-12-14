@@ -198,6 +198,7 @@ interface AgentConfig {
   maxTurns?: number;                       // Max conversation turns
   maxBudgetUsd?: number;                   // Max budget in USD
   outputFormat?: OutputFormat;             // JSON schema for structured output
+  requestSchema?: RequestSchema;           // Custom request body schema
   betas?: string[];                        // Beta features to enable
 }
 
@@ -205,7 +206,55 @@ interface OutputFormat {
   type: 'json_schema';
   schema: Record<string, unknown>;         // JSON Schema object
 }
+
+interface RequestSchema {
+  schema: Record<string, unknown>;         // JSON Schema for request validation
+  promptTemplate?: string;                 // Template with {{json}} placeholder (default: "{{json}}")
+}
 ```
+
+### Custom Request Schema
+
+Agents can be configured to accept custom JSON request bodies instead of the standard `{prompt: string}` format. The request body is validated against a JSON schema and converted to a prompt using a customizable template.
+
+```typescript
+ClaudePluginModule.forRoot({
+  agents: {
+    'order-processor': {
+      systemPrompt: 'You process orders and return confirmation...',
+      requestSchema: {
+        schema: {
+          type: 'object',
+          properties: {
+            orderId: { type: 'string' },
+            items: { type: 'array', items: { type: 'object' } },
+          },
+          required: ['orderId', 'items'],
+        },
+        promptTemplate: 'Process this order:\n{{json}}',
+      },
+      outputFormat: {
+        type: 'json_schema',
+        schema: { /* response schema */ },
+      },
+      permissionMode: 'bypassPermissions',
+    },
+  },
+})
+```
+
+**API call example**:
+```bash
+curl -X POST http://localhost:3000/v1/agents/order-processor \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "123", "items": [{"sku": "ABC", "qty": 2}]}'
+```
+
+**Behavior**:
+- Request body is validated against the JSON schema; returns 400 on validation failure
+- Body is converted to prompt using the template (default: just the prettified JSON)
+- When `requestSchema` is set, the standard `{prompt: string}` format is not accepted
+- `rawResponse` defaults to true if `outputFormat` is also defined
 
 ## Custom MCP Tools
 

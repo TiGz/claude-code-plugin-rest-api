@@ -23,6 +23,7 @@ export type {
   ToolsConfig,
   PluginPath,
   OutputFormat,
+  RequestSchema,
 } from './types/plugin.types.js';
 
 // Controllers (for custom routing)

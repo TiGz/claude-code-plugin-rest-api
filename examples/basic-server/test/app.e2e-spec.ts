@@ -15,6 +15,42 @@ import { HealthController } from '../src/health.controller.js';
       pluginDirectory: '.claude/plugins',
       hotReload: false,
       auth: { disabled: true },
+      // Add agents for requestSchema testing
+      agents: {
+        'standard-agent': {
+          systemPrompt: 'You are a helpful assistant.',
+          maxTurns: 5,
+        },
+        'request-schema-agent': {
+          systemPrompt: 'You process orders.',
+          maxTurns: 5,
+          requestSchema: {
+            schema: {
+              type: 'object',
+              properties: {
+                orderId: { type: 'string' },
+                items: { type: 'array', items: { type: 'object' } },
+              },
+              required: ['orderId', 'items'],
+            },
+            promptTemplate: 'Process this order:\n{{json}}',
+          },
+        },
+        'request-schema-no-template': {
+          systemPrompt: 'You echo data.',
+          maxTurns: 5,
+          requestSchema: {
+            schema: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+              },
+              required: ['message'],
+            },
+            // No promptTemplate - should use default "{{json}}"
+          },
+        },
+      },
     }),
   ],
   controllers: [HealthController],
@@ -186,6 +222,141 @@ describe('Basic Server (e2e)', () => {
           prompt: 'test',
         })
         .expect(404);
+    });
+  });
+
+  describe('Request Schema Validation', () => {
+    it('GET /v1/agents should list agents including request-schema-agent', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents')
+        .expect(200);
+
+      expect(response.body.agents).toContain('standard-agent');
+      expect(response.body.agents).toContain('request-schema-agent');
+      expect(response.body.agents).toContain('request-schema-no-template');
+    });
+
+    it('GET /v1/agents/request-schema-agent should show requestSchema in config', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/request-schema-agent')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('requestSchema');
+      expect(response.body.requestSchema).toHaveProperty('schema');
+      expect(response.body.requestSchema).toHaveProperty('promptTemplate', 'Process this order:\n{{json}}');
+      expect(response.body.requestSchema.schema.properties).toHaveProperty('orderId');
+      expect(response.body.requestSchema.schema.properties).toHaveProperty('items');
+    });
+
+    it('standard-agent should accept standard {prompt} format', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/standard-agent')
+        .send({ prompt: 'Hello' });
+
+      // Either succeeds (with credentials) or fails gracefully (without)
+      expect([200, 201, 500]).toContain(response.status);
+    });
+
+    it('standard-agent should reject request without prompt', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/standard-agent')
+        .send({ notPrompt: 'Hello' })
+        .expect(400);
+
+      expect(response.body.message).toContain('prompt');
+    });
+
+    it('request-schema-agent should accept valid custom JSON body', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent')
+        .send({
+          orderId: '12345',
+          items: [{ sku: 'ABC', quantity: 2 }],
+        });
+
+      // Either succeeds (with credentials) or fails gracefully (without)
+      expect([200, 201, 500]).toContain(response.status);
+    });
+
+    it('request-schema-agent should reject missing required field', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent')
+        .send({
+          // Missing orderId
+          items: [{ sku: 'ABC', quantity: 2 }],
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe('Request body validation failed');
+      expect(response.body.errors).toBeDefined();
+      expect(Array.isArray(response.body.errors)).toBe(true);
+      // Should have an error about missing orderId
+      const hasOrderIdError = response.body.errors.some(
+        (e: { keyword: string }) => e.keyword === 'required',
+      );
+      expect(hasOrderIdError).toBe(true);
+    });
+
+    it('request-schema-agent should reject wrong type', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent')
+        .send({
+          orderId: 12345, // Should be string, not number
+          items: [{ sku: 'ABC', quantity: 2 }],
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe('Request body validation failed');
+      expect(response.body.errors).toBeDefined();
+      // Should have an error about type mismatch
+      const hasTypeError = response.body.errors.some(
+        (e: { keyword: string }) => e.keyword === 'type',
+      );
+      expect(hasTypeError).toBe(true);
+    });
+
+    it('request-schema-agent should reject {prompt} format', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent')
+        .send({ prompt: 'This is a prompt' })
+        .expect(400);
+
+      expect(response.body.message).toBe('Request body validation failed');
+    });
+
+    it('request-schema-no-template agent should work with default template', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-no-template')
+        .send({ message: 'Hello World' });
+
+      // Either succeeds (with credentials) or fails gracefully (without)
+      expect([200, 201, 500]).toContain(response.status);
+    });
+
+    it('request-schema-agent streaming should validate request body', async () => {
+      // Valid request should create session
+      const validResponse = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent/stream')
+        .send({
+          orderId: '12345',
+          items: [{ sku: 'ABC', quantity: 2 }],
+        })
+        .expect(201);
+
+      expect(validResponse.body).toHaveProperty('sessionId');
+      expect(validResponse.body).toHaveProperty('streamUrl');
+    });
+
+    it('request-schema-agent streaming should reject invalid request body', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-agent/stream')
+        .send({
+          // Missing required fields
+          invalidField: 'test',
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe('Request body validation failed');
     });
   });
 });

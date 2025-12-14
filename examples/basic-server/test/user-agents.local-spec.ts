@@ -111,6 +111,62 @@ const calculatorMcpServer = createSdkMcpServer({
           // Load plugin from filesystem - this works even with enablePluginEndpoints: false
           plugins: [{ type: 'local', path: '.claude/plugins/example-plugin' }],
         },
+        // Agent with custom request schema (no structured output)
+        'request-schema-echo': {
+          systemPrompt: 'You receive order data. Echo back the orderId and count of items in the format: "Order [orderId] has [count] items"',
+          maxTurns: 3,
+          maxBudgetUsd: 0.5,
+          requestSchema: {
+            schema: {
+              type: 'object',
+              properties: {
+                orderId: { type: 'string' },
+                items: { type: 'array', items: { type: 'object' } },
+              },
+              required: ['orderId', 'items'],
+            },
+            promptTemplate: 'Process this order and echo back the orderId and item count:\n{{json}}',
+          },
+        },
+        // Agent with both request schema and structured output
+        'order-processor': {
+          systemPrompt: 'You analyze orders and return structured data. Given order data, return the orderId as-is, count of items, and whether total items exceeds 5.',
+          maxTurns: 3,
+          maxBudgetUsd: 0.5,
+          requestSchema: {
+            schema: {
+              type: 'object',
+              properties: {
+                orderId: { type: 'string' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      sku: { type: 'string' },
+                      quantity: { type: 'number' },
+                    },
+                  },
+                },
+              },
+              required: ['orderId', 'items'],
+            },
+            promptTemplate: 'Analyze this order:\n{{json}}',
+          },
+          outputFormat: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                orderId: { type: 'string' },
+                itemCount: { type: 'number' },
+                isLargeOrder: { type: 'boolean' },
+              },
+              required: ['orderId', 'itemCount', 'isLargeOrder'],
+              additionalProperties: false,
+            },
+          },
+        },
       },
       // Note: enablePluginEndpoints is NOT set (defaults to false)
       // This proves agents can still use plugins via the SDK's plugins option
@@ -143,7 +199,7 @@ describe('User-Defined Agents Integration (Local)', () => {
         .expect(200);
 
       expect(response.body).toHaveProperty('agents');
-      expect(response.body).toHaveProperty('count', 6);
+      expect(response.body).toHaveProperty('count', 8);
       expect(Array.isArray(response.body.agents)).toBe(true);
       expect(response.body.agents).toContain('math-helper');
       expect(response.body.agents).toContain('code-analyzer');
@@ -151,6 +207,8 @@ describe('User-Defined Agents Integration (Local)', () => {
       expect(response.body.agents).toContain('structured-output-agent');
       expect(response.body.agents).toContain('mcp-calculator');
       expect(response.body.agents).toContain('plugin-user');
+      expect(response.body.agents).toContain('request-schema-echo');
+      expect(response.body.agents).toContain('order-processor');
     });
 
     it('GET /v1/agents/:name should return agent config', async () => {
@@ -261,7 +319,7 @@ describe('User-Defined Agents Integration (Local)', () => {
   });
 
   describe('Structured Output', () => {
-    it('structured-output-agent should return validated JSON in structuredOutput', async () => {
+    it('structured-output-agent should return validated JSON directly (rawResponse defaults true)', async () => {
       const response = await request(app.getHttpServer())
         .post('/v1/agents/structured-output-agent')
         .send({
@@ -269,11 +327,10 @@ describe('User-Defined Agents Integration (Local)', () => {
         });
 
       expect([200, 201]).toContain(response.status);
-      expect(response.body).toHaveProperty('success', true);
 
-      // Verify structuredOutput is present and matches schema
-      expect(response.body).toHaveProperty('structuredOutput');
-      const output = response.body.structuredOutput;
+      // With outputFormat defined, rawResponse defaults to true
+      // So the structured output is returned directly, not wrapped
+      const output = response.body;
 
       expect(output).toHaveProperty('number');
       expect(typeof output.number).toBe('number');
@@ -373,5 +430,114 @@ describe('User-Defined Agents Integration (Local)', () => {
       expect(response.body.plugins[0]).toHaveProperty('type', 'local');
       expect(response.body.plugins[0]).toHaveProperty('path', '.claude/plugins/example-plugin');
     });
+  });
+
+  describe('Request Schema Agents', () => {
+    it('GET /v1/agents/request-schema-echo should show requestSchema config', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/request-schema-echo')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('requestSchema');
+      expect(response.body.requestSchema).toHaveProperty('schema');
+      expect(response.body.requestSchema).toHaveProperty('promptTemplate');
+      expect(response.body.requestSchema.promptTemplate).toContain('{{json}}');
+    });
+
+    it('GET /v1/agents/order-processor should show both requestSchema and outputFormat', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/v1/agents/order-processor')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('requestSchema');
+      expect(response.body).toHaveProperty('outputFormat');
+      expect(response.body.outputFormat).toHaveProperty('type', 'json_schema');
+    });
+
+    it('request-schema-echo should process custom JSON body and return result', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-echo')
+        .send({
+          orderId: 'ORD-12345',
+          items: [
+            { sku: 'ABC', quantity: 2 },
+            { sku: 'DEF', quantity: 3 },
+          ],
+        });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toHaveProperty('result');
+      // The agent should echo back the orderId and count
+      const result = response.body.result.toLowerCase();
+      expect(result).toMatch(/ord-12345|12345/i);
+      expect(result).toMatch(/2|two/i);
+    }, 60000);
+
+    it('order-processor should accept custom JSON and return structured output', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/order-processor')
+        .send({
+          orderId: 'ORD-99999',
+          items: [
+            { sku: 'WIDGET-A', quantity: 3 },
+            { sku: 'WIDGET-B', quantity: 4 },
+          ],
+        });
+
+      expect([200, 201]).toContain(response.status);
+
+      // With outputFormat + requestSchema, rawResponse defaults to true
+      // So response body should be the structured output directly
+      expect(response.body).toHaveProperty('orderId', 'ORD-99999');
+      expect(response.body).toHaveProperty('itemCount');
+      expect(typeof response.body.itemCount).toBe('number');
+      // Agent may count distinct items (2) or total quantity (7) - both are valid interpretations
+      expect([2, 7]).toContain(response.body.itemCount);
+      expect(response.body).toHaveProperty('isLargeOrder');
+      expect(typeof response.body.isLargeOrder).toBe('boolean');
+    }, 60000);
+
+    it('order-processor should return isLargeOrder=true for large orders', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/v1/agents/order-processor')
+        .send({
+          orderId: 'ORD-LARGE',
+          items: [
+            { sku: 'A', quantity: 1 },
+            { sku: 'B', quantity: 1 },
+            { sku: 'C', quantity: 1 },
+            { sku: 'D', quantity: 1 },
+            { sku: 'E', quantity: 1 },
+            { sku: 'F', quantity: 1 },
+          ],
+        });
+
+      expect([200, 201]).toContain(response.status);
+      expect(response.body).toHaveProperty('orderId', 'ORD-LARGE');
+      expect(response.body).toHaveProperty('itemCount', 6);
+      expect(response.body).toHaveProperty('isLargeOrder', true);
+    }, 60000);
+
+    it('request-schema-echo streaming should work with custom JSON body', async () => {
+      const sessionResponse = await request(app.getHttpServer())
+        .post('/v1/agents/request-schema-echo/stream')
+        .send({
+          orderId: 'STREAM-001',
+          items: [{ sku: 'TEST', quantity: 1 }],
+        })
+        .expect(201);
+
+      expect(sessionResponse.body).toHaveProperty('sessionId');
+      expect(sessionResponse.body).toHaveProperty('streamUrl');
+
+      // Consume the stream
+      const streamResponse = await request(app.getHttpServer())
+        .get(`/v1/stream/${sessionResponse.body.sessionId}`)
+        .set('Accept', 'text/event-stream');
+
+      expect(streamResponse.status).toBe(200);
+      expect(streamResponse.headers['content-type']).toContain('text/event-stream');
+    }, 60000);
   });
 });

@@ -80,6 +80,22 @@ export interface OutputFormat {
 }
 
 /**
+ * Request schema configuration for agents that accept custom JSON bodies.
+ * When configured, the agent validates incoming requests against the schema
+ * and converts the JSON body to a prompt using the template.
+ */
+export interface RequestSchema {
+  /** JSON Schema for request validation */
+  schema: Record<string, unknown>;
+  /**
+   * Template to convert request body to prompt.
+   * Use {{json}} as placeholder for the prettified JSON body.
+   * Default: "{{json}}"
+   */
+  promptTemplate?: string;
+}
+
+/**
  * Full SDK options for user-defined agents.
  * These agents are defined programmatically and exposed via /v1/agents/:name
  */
@@ -119,4 +135,10 @@ export interface AgentConfig {
    * When set, the agent's final result must conform to the provided JSON schema.
    */
   outputFormat?: OutputFormat;
+  /**
+   * Request schema for custom JSON request bodies.
+   * When set, the agent accepts custom JSON bodies instead of {prompt: string}.
+   * The body is validated against the schema and converted to a prompt using the template.
+   */
+  requestSchema?: RequestSchema;
 }

@@ -9,12 +9,16 @@ import {
   HttpException,
   HttpStatus,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiParam, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { Ajv, ErrorObject } from 'ajv';
 import { AgentService } from '../services/agent.service.js';
 import { StreamSessionService } from '../services/stream-session.service.js';
 import { AgentConfig } from '../types/plugin.types.js';
+
+const ajv = new Ajv({ allErrors: true });
 
 class ExecuteAgentDto {
   prompt!: string;
@@ -81,27 +85,67 @@ export class AgentController {
    * By default, returns a wrapped response with metadata (success, result, cost, turns, usage).
    * For agents with outputFormat, rawResponse defaults to true (returns structured JSON directly).
    * When `rawResponse: true`, returns the agent's output directly with auto-detected Content-Type.
+   *
+   * For agents with requestSchema configured, the request body is validated against the schema
+   * and converted to a prompt using the configured template.
    */
   @Post(':name')
   @ApiOperation({ summary: 'Execute an agent' })
   @ApiParam({ name: 'name', description: 'Agent name' })
   @ApiBody({ type: ExecuteAgentDto })
   @ApiResponse({ status: 200, description: 'Execution result' })
+  @ApiResponse({ status: 400, description: 'Request validation failed' })
   @ApiResponse({ status: 404, description: 'Agent not found' })
   async executeAgent(
     @Param('name') name: string,
-    @Body() dto: ExecuteAgentDto,
+    @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
     this.logger.log(`Executing agent: ${name}`);
 
-    // Get agent config to check for outputFormat
+    // Get agent config to check for outputFormat and requestSchema
     const config = this.agentService.getAgentConfig(name);
     if (!config) {
       throw new NotFoundException(`Agent '${name}' not found`);
     }
 
-    const result = await this.agentService.execute(name, dto.prompt);
+    let prompt: string;
+    let rawResponse: boolean | undefined;
+
+    if (config.requestSchema) {
+      // Validate request body against JSON schema
+      const validate = ajv.compile(config.requestSchema.schema);
+      const valid = validate(body);
+
+      if (!valid) {
+        throw new BadRequestException({
+          message: 'Request body validation failed',
+          errors: validate.errors?.map((err: ErrorObject) => ({
+            path: err.instancePath || '/',
+            message: err.message,
+            keyword: err.keyword,
+            params: err.params,
+          })),
+        });
+      }
+
+      // Convert request body to prompt using template
+      const template = config.requestSchema.promptTemplate ?? '{{json}}';
+      prompt = template.replace('{{json}}', JSON.stringify(body, null, 2));
+
+      // For requestSchema agents, rawResponse defaults based on outputFormat
+      rawResponse = config.outputFormat !== undefined;
+    } else {
+      // Standard behavior: expect {prompt, rawResponse?}
+      const dto = body as ExecuteAgentDto;
+      if (!dto.prompt || typeof dto.prompt !== 'string') {
+        throw new BadRequestException('Request body must include a "prompt" string');
+      }
+      prompt = dto.prompt;
+      rawResponse = dto.rawResponse;
+    }
+
+    const result = await this.agentService.execute(name, prompt);
 
     if (!result.success && result.error?.includes('not found')) {
       throw new NotFoundException(result.error);
@@ -115,7 +159,7 @@ export class AgentController {
     }
 
     // Default rawResponse to true for agents with outputFormat
-    const shouldReturnRaw = dto.rawResponse ?? (config.outputFormat !== undefined);
+    const shouldReturnRaw = rawResponse ?? (config.outputFormat !== undefined);
 
     // Handle raw response mode with auto-detect Content-Type
     if (shouldReturnRaw) {
@@ -144,6 +188,9 @@ export class AgentController {
    * Create a stream session for agent execution
    *
    * Returns a session ID that can be used with GET /v1/stream/:sessionId to consume the SSE stream.
+   *
+   * For agents with requestSchema configured, the request body is validated against the schema
+   * and converted to a prompt using the configured template.
    */
   @Post(':name/stream')
   @ApiOperation({ summary: 'Create a stream session for agent execution' })
@@ -160,15 +207,47 @@ export class AgentController {
       },
     },
   })
+  @ApiResponse({ status: 400, description: 'Request validation failed' })
   @ApiResponse({ status: 404, description: 'Agent not found' })
   async createStreamSession(
     @Param('name') name: string,
-    @Body() dto: CreateStreamDto,
+    @Body() body: unknown,
   ) {
     // Verify agent exists
     const config = this.agentService.getAgentConfig(name);
     if (!config) {
       throw new NotFoundException(`Agent '${name}' not found`);
+    }
+
+    let prompt: string;
+
+    if (config.requestSchema) {
+      // Validate request body against JSON schema
+      const validate = ajv.compile(config.requestSchema.schema);
+      const valid = validate(body);
+
+      if (!valid) {
+        throw new BadRequestException({
+          message: 'Request body validation failed',
+          errors: validate.errors?.map((err: ErrorObject) => ({
+            path: err.instancePath || '/',
+            message: err.message,
+            keyword: err.keyword,
+            params: err.params,
+          })),
+        });
+      }
+
+      // Convert request body to prompt using template
+      const template = config.requestSchema.promptTemplate ?? '{{json}}';
+      prompt = template.replace('{{json}}', JSON.stringify(body, null, 2));
+    } else {
+      // Standard behavior: expect {prompt}
+      const dto = body as CreateStreamDto;
+      if (!dto.prompt || typeof dto.prompt !== 'string') {
+        throw new BadRequestException('Request body must include a "prompt" string');
+      }
+      prompt = dto.prompt;
     }
 
     this.logger.log(`Creating stream session for agent: ${name}`);
@@ -177,7 +256,7 @@ export class AgentController {
     const sessionId = await this.streamSession.createSession({
       pluginName: '__agent__', // Special marker to distinguish from plugin agents
       agentName: name,
-      prompt: dto.prompt,
+      prompt,
       // Note: maxTurns and maxBudgetUsd are defined in the agent config, not per-request
     });
 
