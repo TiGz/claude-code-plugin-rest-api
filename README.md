@@ -8,9 +8,10 @@ A NestJS module for building REST APIs powered by Claude agents. Define agents i
 ## Features
 
 - **User-Defined Agents**: Configure agents programmatically with full SDK options
-- **Full SDK Support**: permissionMode, tools presets, MCP servers, plugins, and more
+- **Full SDK Passthrough**: `AgentConfig` extends SDK `Options` - all SDK features available automatically
 - **REST API**: Each agent gets its own `/v1/agents/:name` endpoint
 - **SSE Streaming**: Real-time streaming responses via Server-Sent Events
+- **Custom Request Schemas**: Accept custom JSON bodies with validation (REST API extension)
 - **Plugin Discovery**: Also supports file-based Claude Code plugins
 - **Authentication**: Built-in basic auth with YAML config or custom providers
 - **Claude Max Support**: Works with Claude Max subscription via terminal login
@@ -133,53 +134,42 @@ curl -N http://localhost:3000/v1/stream/$SESSION \
 
 ## AgentConfig Options
 
-Full Claude Agent SDK options available:
+`AgentConfig` extends the Claude Agent SDK's `Options` type, giving you full access to all SDK features plus our REST API extension (`requestSchema`).
 
-```typescript
-interface AgentConfig {
-  // Required
-  systemPrompt: string;              // Agent's system prompt
+### Commonly Used Options
 
-  // Model & Directory
-  model?: string;                    // Model (default: claude-sonnet-4-5)
-  workingDirectory?: string;         // Agent's working directory
+| Option | Type | Description |
+|--------|------|-------------|
+| `systemPrompt` | `string` | Agent's system prompt (**required**) |
+| `model` | `string` | Model to use (default: claude-sonnet-4-5) |
+| `cwd` | `string` | Working directory for file operations |
+| `permissionMode` | `PermissionMode` | `'default'` \| `'acceptEdits'` \| `'bypassPermissions'` |
+| `tools` | `ToolsConfig` | `{ type: 'preset', preset: 'claude_code' }` or tool array |
+| `allowedTools` | `string[]` | Tool allowlist |
+| `disallowedTools` | `string[]` | Tools to block |
+| `mcpServers` | `Record<string, McpServerConfig>` | Custom MCP servers |
+| `plugins` | `SdkPluginConfig[]` | Additional plugins to load |
+| `maxTurns` | `number` | Max conversation turns |
+| `maxBudgetUsd` | `number` | Max budget in USD |
+| `outputFormat` | `OutputFormat` | JSON schema for structured output |
+| `requestSchema` | `RequestSchema` | Custom request body schema (REST API extension) |
 
-  // Tools Configuration
-  tools?: ToolsConfig;               // Preset or explicit list
-  allowedTools?: string[];           // Tool allowlist (alternative to tools)
-  disallowedTools?: string[];        // Tools to block
+### Advanced SDK Options
 
-  // Permissions
-  permissionMode?: PermissionMode;   // 'default' | 'acceptEdits' | 'bypassPermissions'
+Since `AgentConfig` extends the SDK's `Options` type, you also have access to:
 
-  // Extensions
-  plugins?: PluginPath[];            // Additional plugins to load
-  mcpServers?: Record<string, any>;  // Custom MCP servers
-  settingSources?: ('user' | 'project' | 'local')[];
+| Option | Type | Description |
+|--------|------|-------------|
+| `hooks` | `Record<HookEvent, HookCallbackMatcher[]>` | Hook callbacks for events |
+| `agents` | `Record<string, AgentDefinition>` | Custom subagent definitions |
+| `sandbox` | `SandboxSettings` | Sandbox configuration |
+| `settingSources` | `SettingSource[]` | Load settings from filesystem |
+| `betas` | `SdkBeta[]` | Beta features (e.g., `'context-1m-2025-08-07'`) |
+| `maxThinkingTokens` | `number` | Limit model thinking tokens |
+| `fallbackModel` | `string` | Fallback if primary model fails |
+| `enableFileCheckpointing` | `boolean` | Track file changes for rewind |
 
-  // Limits
-  maxTurns?: number;                 // Max conversation turns
-  maxBudgetUsd?: number;             // Max budget in USD
-
-  // Structured Output
-  outputFormat?: OutputFormat;       // JSON schema for validated output
-
-  // Beta Features
-  betas?: string[];                  // e.g., ['context-1m-2025-08-07']
-}
-
-// Tools can be a preset or explicit list
-type ToolsConfig = string[] | { type: 'preset'; preset: 'claude_code' };
-
-// Permission modes
-type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
-
-// Structured output format
-interface OutputFormat {
-  type: 'json_schema';
-  schema: Record<string, unknown>;   // JSON Schema object
-}
-```
+See the [Claude Agent SDK documentation](https://docs.anthropic.com/en/docs/claude-code/sdk) for the complete list of options.
 
 ### Key Options Explained
 
@@ -189,6 +179,25 @@ interface OutputFormat {
 - **`mcpServers`**: Add custom MCP servers for database, APIs, etc.
 - **`settingSources`**: Load skills from user/project settings
 - **`outputFormat`**: Enforce structured JSON output with schema validation
+- **`hooks`**: Respond to events like `PreToolUse`, `PostToolUse`, `SessionStart`
+- **`agents`**: Define custom subagents for the Task tool
+
+### Re-exported SDK Types
+
+For convenience, commonly used SDK types are re-exported from the package:
+
+```typescript
+import type {
+  Options,              // Full SDK options type
+  PermissionMode,       // 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
+  OutputFormat,         // JSON schema output format
+  McpServerConfig,      // MCP server configuration
+  AgentDefinition,      // Subagent definitions
+  SDKMessage,           // Union of all message types
+  SDKResultMessage,     // Result message type
+  Query,                // AsyncGenerator with control methods
+} from '@tigz/claude-code-plugin-rest-api';
+```
 
 ### Structured Output Example
 
@@ -286,6 +295,54 @@ curl -X POST http://localhost:3000/v1/agents/math-helper \
 
 # Returns just the text response:
 The answer is 4.
+```
+
+### Custom Request Schema (REST API Extension)
+
+The `requestSchema` option lets agents accept custom JSON bodies instead of the standard `{prompt: string}` format:
+
+```typescript
+ClaudePluginModule.forRoot({
+  agents: {
+    'order-processor': {
+      systemPrompt: 'Process orders and return confirmation.',
+      requestSchema: {
+        schema: {
+          type: 'object',
+          properties: {
+            orderId: { type: 'string' },
+            items: { type: 'array', items: { type: 'object' } },
+          },
+          required: ['orderId', 'items'],
+        },
+        promptTemplate: 'Process this order:\n{{json}}',
+      },
+      outputFormat: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            confirmed: { type: 'boolean' },
+            total: { type: 'number' },
+          },
+          required: ['confirmed', 'total'],
+        },
+      },
+      permissionMode: 'bypassPermissions',
+    },
+  },
+})
+```
+
+Now the agent accepts custom JSON directly:
+
+```bash
+curl -X POST http://localhost:3000/v1/agents/order-processor \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "123", "items": [{"sku": "ABC", "qty": 2}]}'
+
+# Returns:
+{"confirmed": true, "total": 49.99}
 ```
 
 ### Custom MCP Tools Example

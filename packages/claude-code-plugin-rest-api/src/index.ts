@@ -10,21 +10,17 @@ export { StreamSessionService } from './services/stream-session.service.js';
 export type { StreamSession } from './services/stream-session.service.js';
 export { AgentService, AGENT_CONFIG } from './services/agent.service.js';
 
-// Types
+// Types - Plugin discovery
 export type {
   PluginManifest,
   PluginCommand,
   PluginAgent,
   PluginSkill,
   DiscoveredPlugin,
-  // User-defined agent types
-  AgentConfig,
-  PermissionMode,
-  ToolsConfig,
-  PluginPath,
-  OutputFormat,
-  RequestSchema,
 } from './types/plugin.types.js';
+
+// Types - Agent configuration (extends SDK Options)
+export type { AgentConfig, RequestSchema } from './types/plugin.types.js';
 
 // Controllers (for custom routing)
 export { PluginController, StreamController } from './controllers/plugin.controller.js';
@@ -35,8 +31,30 @@ export type { AuthUser, AuthProvider, AuthModuleOptions } from './auth/auth.type
 export { YamlAuthProvider } from './auth/yaml-auth.provider.js';
 export { BasicAuthGuard } from './auth/auth.guard.js';
 
-// MCP tool creation (re-exported from Claude Agent SDK)
+// Claude Agent SDK re-exports for convenience
 export { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
+
+// Re-export commonly used SDK types
+export type {
+  Options,
+  PermissionMode,
+  OutputFormat,
+  SdkPluginConfig,
+  McpServerConfig,
+  McpStdioServerConfig,
+  McpSSEServerConfig,
+  McpHttpServerConfig,
+  McpSdkServerConfigWithInstance,
+  AgentDefinition,
+  SdkBeta,
+  SettingSource,
+  SDKMessage,
+  SDKResultMessage,
+  SDKAssistantMessage,
+  SDKUserMessage,
+  SDKSystemMessage,
+  Query,
+} from '@anthropic-ai/claude-agent-sdk';
 
 // Re-export zod for tool schema definitions
 export { z } from 'zod';

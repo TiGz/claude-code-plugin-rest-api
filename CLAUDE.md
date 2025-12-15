@@ -181,32 +181,44 @@ Local tests cover:
 
 ## AgentConfig Options
 
-Full SDK options available for user-defined agents:
+`AgentConfig` extends the Claude Agent SDK's `Options` type, giving you access to all SDK features plus our REST API extension (`requestSchema`).
+
+**Commonly used options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `systemPrompt` | `string` | Agent's system prompt (required) |
+| `model` | `string` | Model to use (default: claude-sonnet-4-5) |
+| `cwd` | `string` | Working directory for file operations |
+| `permissionMode` | `PermissionMode` | `'default'` \| `'acceptEdits'` \| `'bypassPermissions'` |
+| `tools` | `ToolsConfig` | `{ type: 'preset', preset: 'claude_code' }` or tool array |
+| `allowedTools` | `string[]` | Tool allowlist |
+| `disallowedTools` | `string[]` | Tools to block |
+| `mcpServers` | `Record<string, McpServerConfig>` | Custom MCP servers |
+| `plugins` | `SdkPluginConfig[]` | Additional plugins to load |
+| `maxTurns` | `number` | Max conversation turns |
+| `maxBudgetUsd` | `number` | Max budget in USD |
+| `outputFormat` | `OutputFormat` | JSON schema for structured output |
+| `requestSchema` | `RequestSchema` | Custom request body schema (REST API extension) |
+
+**Advanced SDK options also available:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `hooks` | `Record<HookEvent, HookCallbackMatcher[]>` | Hook callbacks for events |
+| `agents` | `Record<string, AgentDefinition>` | Custom subagent definitions |
+| `sandbox` | `SandboxSettings` | Sandbox configuration |
+| `settingSources` | `SettingSource[]` | Load settings from filesystem |
+| `betas` | `SdkBeta[]` | Beta features (e.g., `'context-1m-2025-08-07'`) |
+| `maxThinkingTokens` | `number` | Limit model thinking tokens |
+| `fallbackModel` | `string` | Fallback if primary model fails |
+| `enableFileCheckpointing` | `boolean` | Track file changes for rewind |
+
+See the [Claude Agent SDK documentation](https://docs.anthropic.com/en/docs/claude-code/sdk) for the complete list of options.
+
+**REST API extension:**
 
 ```typescript
-interface AgentConfig {
-  systemPrompt: string;                    // Required: Agent's system prompt
-  model?: string;                          // Model to use (default: claude-sonnet-4-5)
-  workingDirectory?: string;               // Agent's working directory
-  plugins?: PluginPath[];                  // Additional plugins to load
-  mcpServers?: Record<string, any>;        // Custom MCP servers
-  tools?: ToolsConfig;                     // Tools preset or explicit list
-  allowedTools?: string[];                 // Tool allowlist
-  disallowedTools?: string[];              // Tools to block
-  permissionMode?: PermissionMode;         // 'default' | 'acceptEdits' | 'bypassPermissions'
-  settingSources?: ('user'|'project'|'local')[];  // Load settings from filesystem
-  maxTurns?: number;                       // Max conversation turns
-  maxBudgetUsd?: number;                   // Max budget in USD
-  outputFormat?: OutputFormat;             // JSON schema for structured output
-  requestSchema?: RequestSchema;           // Custom request body schema
-  betas?: string[];                        // Beta features to enable
-}
-
-interface OutputFormat {
-  type: 'json_schema';
-  schema: Record<string, unknown>;         // JSON Schema object
-}
-
 interface RequestSchema {
   schema: Record<string, unknown>;         // JSON Schema for request validation
   promptTemplate?: string;                 // Template with {{json}} placeholder (default: "{{json}}")

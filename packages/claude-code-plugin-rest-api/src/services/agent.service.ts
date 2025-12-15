@@ -125,50 +125,19 @@ export class AgentService {
   }
 
   /**
-   * Build query options from agent config, passing through all SDK options
+   * Build query options from agent config.
+   * Spreads SDK options directly and sets defaults for cwd and permissionMode.
    */
   private buildQueryOptions(config: AgentConfig) {
+    // Extract our custom extension, pass everything else to SDK
+    const { requestSchema: _requestSchema, ...sdkOptions } = config;
+
     return {
-      // Model
-      ...(config.model && { model: config.model }),
-
-      // Working directory
-      workingDirectory: config.workingDirectory || process.cwd(),
-
-      // Plugins
-      ...(config.plugins && { plugins: config.plugins }),
-
-      // MCP Servers
-      ...(config.mcpServers && { mcpServers: config.mcpServers }),
-
-      // Tools - support both formats
-      ...(config.tools
-        ? { tools: config.tools }
-        : config.allowedTools
-          ? { allowedTools: config.allowedTools }
-          : {}),
-
-      // Disallowed tools
-      ...(config.disallowedTools && { disallowedTools: config.disallowedTools }),
-
-      // Permission mode
-      permissionMode: config.permissionMode || 'default',
-
-      // Settings sources
-      ...(config.settingSources && { settingSources: config.settingSources }),
-
-      // System prompt
-      systemPrompt: config.systemPrompt,
-
-      // Limits
-      ...(config.maxTurns && { maxTurns: config.maxTurns }),
-      ...(config.maxBudgetUsd && { maxBudgetUsd: config.maxBudgetUsd }),
-
-      // Beta features
-      ...(config.betas && { betas: config.betas }),
-
-      // Structured output format
-      ...(config.outputFormat && { outputFormat: config.outputFormat }),
+      ...sdkOptions,
+      // Default working directory to cwd if not specified
+      cwd: sdkOptions.cwd ?? process.cwd(),
+      // Default permission mode
+      permissionMode: sdkOptions.permissionMode ?? 'default',
     };
   }
 }

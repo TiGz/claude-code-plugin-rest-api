@@ -1,3 +1,5 @@
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
+
 export interface PluginManifest {
   name: string;
   version: string;
@@ -54,35 +56,15 @@ export interface DiscoveredPlugin {
 }
 
 // ============================================
-// User-Defined Agent Types (Full SDK Options)
+// User-Defined Agent Types (Extends SDK Options)
 // ============================================
-
-/** Permission modes for agent execution */
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
-
-/** Tools configuration - explicit list or preset */
-export type ToolsConfig = string[] | { type: 'preset'; preset: 'claude_code' };
-
-/** Plugin path configuration */
-export interface PluginPath {
-  type: 'local';
-  path: string;
-}
-
-/**
- * JSON Schema output format for structured agent responses.
- * Enforces validated JSON outputs after tool-using workflows.
- */
-export interface OutputFormat {
-  type: 'json_schema';
-  /** JSON Schema object that the agent's output must conform to */
-  schema: Record<string, unknown>;
-}
 
 /**
  * Request schema configuration for agents that accept custom JSON bodies.
  * When configured, the agent validates incoming requests against the schema
  * and converts the JSON body to a prompt using the template.
+ *
+ * This is a REST API extension not present in the core SDK.
  */
 export interface RequestSchema {
   /** JSON Schema for request validation */
@@ -96,49 +78,28 @@ export interface RequestSchema {
 }
 
 /**
- * Full SDK options for user-defined agents.
- * These agents are defined programmatically and exposed via /v1/agents/:name
+ * Agent configuration extending the Claude Agent SDK Options type.
+ *
+ * Provides full access to all SDK options plus REST API-specific extensions.
+ * Options that don't make sense in a REST context are omitted:
+ * - `abortController`: Managed internally by request handlers
+ * - `canUseTool`: No interactive prompting in REST APIs, use `permissionMode` instead
+ * - `stderr`: Server-side logging concern
+ * - `spawnClaudeCodeProcess`: Internal transport concern
+ *
+ * @see https://docs.anthropic.com/en/docs/claude-code/sdk for full SDK documentation
  */
-export interface AgentConfig {
-  /** System prompt for the agent */
-  systemPrompt: string;
-  /** Model to use (default: claude-sonnet-4-5) */
-  model?: string;
-  /** Agent's working directory for file operations */
-  workingDirectory?: string;
-  /** Additional plugins to load */
-  plugins?: PluginPath[];
+export type AgentConfig = Omit<
+  Options,
+  | 'abortController'
+  | 'canUseTool'
+  | 'stderr'
+  | 'spawnClaudeCodeProcess'
+> & {
   /**
-   * Custom MCP servers.
-   * Use createSdkMcpServer() from @anthropic-ai/claude-agent-sdk to create these.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mcpServers?: Record<string, any>;
-  /** Tools configuration - explicit list or preset */
-  tools?: ToolsConfig;
-  /** Explicit tool allowlist (alternative to tools) */
-  allowedTools?: string[];
-  /** Tools to block */
-  disallowedTools?: string[];
-  /** Permission mode: 'bypassPermissions' for pre-approved actions */
-  permissionMode?: PermissionMode;
-  /** Load settings from filesystem */
-  settingSources?: ('user' | 'project' | 'local')[];
-  /** Max conversation turns */
-  maxTurns?: number;
-  /** Max budget in USD */
-  maxBudgetUsd?: number;
-  /** Beta features to enable (e.g., 'context-1m-2025-08-07') */
-  betas?: ('context-1m-2025-08-07')[];
-  /**
-   * Output format for structured JSON responses.
-   * When set, the agent's final result must conform to the provided JSON schema.
-   */
-  outputFormat?: OutputFormat;
-  /**
-   * Request schema for custom JSON request bodies.
+   * Request schema for custom JSON request bodies (REST API extension).
    * When set, the agent accepts custom JSON bodies instead of {prompt: string}.
    * The body is validated against the schema and converted to a prompt using the template.
    */
   requestSchema?: RequestSchema;
-}
+};
