@@ -3,16 +3,21 @@
 [![npm version](https://img.shields.io/npm/v/@tigz/claude-code-plugin-rest-api.svg)](https://www.npmjs.com/package/@tigz/claude-code-plugin-rest-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A NestJS module for building REST APIs powered by Claude agents. Define agents in code with full Claude Agent SDK options and expose them as HTTP endpoints.
+A NestJS module for exposing Claude agents as REST API endpoints. Supports two approaches:
+
+1. **File-based Plugins**: Expose existing Claude Code plugins (agents, commands, skills) as HTTP endpoints
+2. **Code-based Agents**: Define agents programmatically with full Claude Agent SDK options
+
+Both approaches give you powerful REST APIs for Claude agents with streaming, authentication, and custom tooling.
 
 ## Features
 
-- **User-Defined Agents**: Configure agents programmatically with full SDK options
-- **Full SDK Passthrough**: `AgentConfig` extends SDK `Options` - all SDK features available automatically
-- **REST API**: Each agent gets its own `/v1/agents/:name` endpoint
+- **Two Agent Approaches**: Choose file-based plugins or code-based configuration
+- **REST API**: Each agent gets its own HTTP endpoint (`/v1/agents/:name` or `/v1/plugins/:plugin/agents/:agent`)
 - **SSE Streaming**: Real-time streaming responses via Server-Sent Events
-- **Custom Request Schemas**: Accept custom JSON bodies with validation (REST API extension)
-- **Plugin Discovery**: Also supports file-based Claude Code plugins
+- **Full SDK Passthrough**: `AgentConfig` extends SDK `Options` - all SDK features available
+- **Custom Request Schemas**: Accept custom JSON bodies with validation
+- **Custom MCP Tools**: Add in-process MCP servers with custom tools
 - **Authentication**: Built-in basic auth with YAML config or custom providers
 - **Claude Max Support**: Works with Claude Max subscription via terminal login
 
@@ -40,9 +45,94 @@ You'll also need NestJS peer dependencies if not already installed:
 npm install @nestjs/common @nestjs/core rxjs
 ```
 
-## User-Defined Agents (Primary Interface)
+## Approach 1: File-Based Plugins
 
-Define agents in your NestJS module with full Claude Agent SDK options:
+Expose existing Claude Code plugins as REST API endpoints. This approach is perfect if you already have Claude Code plugins (agents, commands, skills) and want to make them available via HTTP.
+
+### Plugin Structure
+
+```
+.claude/plugins/
+└── my-plugin/
+    ├── .claude-plugin/
+    │   └── plugin.json        # Plugin manifest
+    ├── agents/
+    │   └── my-agent.md        # Agent definition
+    ├── commands/
+    │   └── my-command.md      # Command definition
+    └── skills/
+        └── my-skill/
+            └── SKILL.md       # Skill definition
+```
+
+### Enable Plugin Endpoints
+
+```typescript
+import { Module } from '@nestjs/common';
+import { ClaudePluginModule } from '@tigz/claude-code-plugin-rest-api';
+
+@Module({
+  imports: [
+    ClaudePluginModule.forRoot({
+      enablePluginEndpoints: true,
+      pluginDirectory: '.claude/plugins',
+      hotReload: true,  // Auto-reload on file changes (dev only)
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+### Plugin API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/plugins` | List all discovered plugins |
+| GET | `/v1/plugins/:name` | Get plugin details |
+| POST | `/v1/plugins/:plugin/agents/:agent` | Execute plugin agent |
+| POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
+| POST | `/v1/plugins/stream` | Create SSE stream session |
+| GET | `/v1/stream/:sessionId` | Consume SSE stream |
+
+### Execute a Plugin Agent
+
+```bash
+# Request/Response mode
+curl -X POST http://localhost:3000/v1/plugins/my-plugin/agents/my-agent \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)" \
+  -d '{"prompt": "Analyze this code"}'
+
+# Response
+{
+  "success": true,
+  "result": "The code analysis shows...",
+  "cost": 0.03,
+  "turns": 2,
+  "usage": { "inputTokens": 890, "outputTokens": 234 }
+}
+```
+
+### Stream Plugin Responses
+
+```bash
+# 1. Create stream session
+SESSION=$(curl -s -X POST http://localhost:3000/v1/plugins/stream \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)" \
+  -d '{"plugin": "my-plugin", "agent": "my-agent", "prompt": "Explain this"}' \
+  | jq -r '.sessionId')
+
+# 2. Consume SSE stream
+curl -N http://localhost:3000/v1/stream/$SESSION \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)"
+```
+
+## Approach 2: Code-Based Agents
+
+Define agents programmatically in your NestJS module with full Claude Agent SDK options. This approach gives you maximum flexibility and type safety.
+
+### Define Agents in Code
 
 ```typescript
 import { Module } from '@nestjs/common';
@@ -402,30 +492,29 @@ MCP tools run in the same process as your NestJS application, enabling:
 - External API integrations
 - Any async operation
 
-## Plugin Discovery (Optional)
+## Combining Both Approaches
 
-The module can also discover file-based plugins from the filesystem. Plugin endpoints are disabled by default - enable them with `enablePluginEndpoints: true`:
+You can use both file-based plugins and code-based agents together:
 
+```typescript
+ClaudePluginModule.forRoot({
+  // Code-based agents
+  agents: {
+    'code-assistant': {
+      systemPrompt: 'You are a coding assistant.',
+      permissionMode: 'bypassPermissions',
+    },
+  },
+
+  // Also enable file-based plugins
+  enablePluginEndpoints: true,
+  pluginDirectory: '.claude/plugins',
+})
 ```
-.claude/plugins/
-└── my-plugin/
-    ├── .claude-plugin/
-    │   └── plugin.json        # Plugin manifest
-    ├── agents/
-    │   └── my-agent.md        # Agent definition
-    └── commands/
-        └── my-command.md      # Command definition
-```
 
-### Plugin API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/v1/plugins` | List all discovered plugins |
-| GET | `/v1/plugins/:name` | Get plugin details |
-| POST | `/v1/plugins/:plugin/agents/:agent` | Execute plugin agent |
-| POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
-| POST | `/v1/plugins/stream` | Create SSE stream session |
+This gives you:
+- `/v1/agents/code-assistant` - code-based agent
+- `/v1/plugins/my-plugin/agents/my-agent` - file-based plugin agent
 
 ## Configuration
 
@@ -433,10 +522,10 @@ The module can also discover file-based plugins from the filesystem. Plugin endp
 
 ```typescript
 ClaudePluginModule.forRoot({
-  // User-defined agents (primary interface)
+  // Code-based agents
   agents: { ... },
 
-  // Plugin discovery (disabled by default)
+  // File-based plugin discovery
   enablePluginEndpoints: false,        // Set true to enable /v1/plugins/* endpoints
   pluginDirectory: '.claude/plugins',  // Directory for file-based plugins
   hotReload: false,                    // Enable in development
