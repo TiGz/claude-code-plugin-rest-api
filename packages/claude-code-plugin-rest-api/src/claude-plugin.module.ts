@@ -9,6 +9,7 @@ import { StreamSessionService } from './services/stream-session.service.js';
 import { AgentService, AGENT_CONFIG } from './services/agent.service.js';
 import { PluginController, StreamController } from './controllers/plugin.controller.js';
 import { AgentController } from './controllers/agent.controller.js';
+import { WebhookController } from './controllers/webhook.controller.js';
 import { BasicAuthGuard } from './auth/auth.guard.js';
 import { YamlAuthProvider } from './auth/yaml-auth.provider.js';
 import { AuthModuleOptions, AUTH_OPTIONS, AUTH_PROVIDER } from './auth/auth.types.js';
@@ -129,6 +130,8 @@ export class ClaudePluginModule implements OnModuleInit {
     if (resolvedOptions.includeControllers) {
       // Always include StreamController (used by both agents and plugins)
       controllers.push(StreamController);
+      // Always include WebhookController for GitOps reload trigger
+      controllers.push(WebhookController);
       // Include AgentController if agents are configured
       if (hasAgents) {
         controllers.push(AgentController);
@@ -312,7 +315,7 @@ export class ClaudePluginModule implements OnModuleInit {
       // For async config, all controllers are included since we can't determine
       // enablePluginEndpoints at module registration time. Use forRoot() for
       // static configuration if you need to disable plugin endpoints.
-      controllers: [PluginController, StreamController, AgentController],
+      controllers: [PluginController, StreamController, AgentController, WebhookController],
       providers: [
         optionsProvider,
         authOptionsProvider,

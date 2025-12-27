@@ -7,6 +7,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
+  // Enable graceful shutdown - waits for in-flight requests to complete
+  app.enableShutdownHooks();
+
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
   app.enableCors();
 

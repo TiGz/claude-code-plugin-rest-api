@@ -24,6 +24,9 @@ export class PluginDiscoveryService implements OnModuleInit {
   private readonly logger = new Logger(PluginDiscoveryService.name);
   private plugins = new Map<string, DiscoveredPlugin>();
   private watcher: chokidar.FSWatcher | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private debounceTimer: any = null;
+  private readonly DEBOUNCE_MS = 500;
 
   constructor(
     @Inject(PLUGIN_DISCOVERY_OPTIONS) private options: PluginDiscoveryOptions,
@@ -44,7 +47,12 @@ export class PluginDiscoveryService implements OnModuleInit {
 
     this.logger.log(`Discovering plugins in ${absolutePluginDir}`);
 
+    // Store previous state in case reload fails
+    const previousPlugins = new Map(this.plugins);
+
     try {
+      this.plugins.clear();
+
       const entries = await fs.readdir(absolutePluginDir, { withFileTypes: true });
 
       for (const entry of entries) {
@@ -60,7 +68,9 @@ export class PluginDiscoveryService implements OnModuleInit {
       if (err.code === 'ENOENT') {
         this.logger.warn(`Plugin directory not found: ${absolutePluginDir}`);
       } else {
-        this.logger.error(`Failed to discover plugins: ${err.message}`);
+        // Restore previous plugins on failure
+        this.logger.error(`Failed to reload plugins, keeping previous config: ${err.message}`);
+        this.plugins = previousPlugins;
       }
     }
   }
@@ -231,19 +241,33 @@ export class PluginDiscoveryService implements OnModuleInit {
       depth: 3,
     });
 
-    this.watcher.on('change', async (filePath) => {
+    const scheduleReload = () => {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+      }
+      this.debounceTimer = setTimeout(async () => {
+        this.logger.log('Reloading plugins after file changes...');
+        await this.discoverPlugins();
+        this.eventEmitter.emit('plugins.reloaded');
+      }, this.DEBOUNCE_MS);
+    };
+
+    this.watcher.on('change', (filePath: string) => {
       this.logger.debug(`Plugin file changed: ${filePath}`);
-      await this.discoverPlugins();
-      this.eventEmitter.emit('plugins.reloaded');
+      scheduleReload();
     });
 
-    this.watcher.on('add', async (filePath) => {
+    this.watcher.on('add', (filePath: string) => {
       this.logger.debug(`Plugin file added: ${filePath}`);
-      await this.discoverPlugins();
-      this.eventEmitter.emit('plugins.reloaded');
+      scheduleReload();
     });
 
-    this.logger.log('Plugin hot reload enabled');
+    this.watcher.on('unlink', (filePath: string) => {
+      this.logger.debug(`Plugin file removed: ${filePath}`);
+      scheduleReload();
+    });
+
+    this.logger.log(`Plugin hot reload enabled (${this.DEBOUNCE_MS}ms debounce)`);
   }
 
   // Public API

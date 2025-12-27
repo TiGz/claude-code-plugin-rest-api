@@ -1,0 +1,5 @@
+{
+  "name": "self-improver",
+  "version": "1.0.0",
+  "description": "A self-improving agent that can update its own skills via git worktrees and PRs"
+}

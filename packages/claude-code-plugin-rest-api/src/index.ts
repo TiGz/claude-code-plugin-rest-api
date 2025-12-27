@@ -25,6 +25,7 @@ export type { AgentConfig, RequestSchema } from './types/plugin.types.js';
 // Controllers (for custom routing)
 export { PluginController, StreamController } from './controllers/plugin.controller.js';
 export { AgentController } from './controllers/agent.controller.js';
+export { WebhookController } from './controllers/webhook.controller.js';
 
 // Auth exports
 export type { AuthUser, AuthProvider, AuthModuleOptions } from './auth/auth.types.js';

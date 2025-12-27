@@ -93,6 +93,7 @@ export class AppModule {}
 | POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
 | POST | `/v1/plugins/stream` | Create SSE stream session |
 | GET | `/v1/stream/:sessionId` | Consume SSE stream |
+| POST | `/webhook/reload` | Trigger plugin reload (for GitOps) |
 
 ### Execute a Plugin Agent
 
@@ -515,6 +516,73 @@ ClaudePluginModule.forRoot({
 This gives you:
 - `/v1/agents/code-assistant` - code-based agent
 - `/v1/plugins/my-plugin/agents/my-agent` - file-based plugin agent
+
+## Self-Improving Agents
+
+Build agents that can modify their own plugin files and submit changes for human review via GitOps. This enables autonomous self-improvement while maintaining human oversight.
+
+### How It Works
+
+1. **Git Worktrees**: Agents use `git worktree` to make changes in isolation without affecting the running server
+2. **PR-based Review**: All changes go through pull requests for human approval
+3. **Hot Reload**: After PR merge, plugins reload via webhook or file watcher
+4. **Rollback on Failure**: Plugin discovery preserves previous state if reload fails
+
+### Example Self-Improving Agent
+
+```typescript
+ClaudePluginModule.forRoot({
+  enablePluginEndpoints: true,
+  pluginDirectory: '.claude/plugins',
+  hotReload: process.env.NODE_ENV === 'development',
+  agents: {
+    'self-improver': {
+      systemPrompt: `You are a self-improving agent. When you identify improvements:
+        1. Create a git worktree: git worktree add ../$NAME -b improve/$NAME
+        2. Make changes in the worktree (not the main directory)
+        3. Commit and create a PR for human review
+        4. Clean up: git worktree remove ../$NAME`,
+      permissionMode: 'bypassPermissions',
+      allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+      maxTurns: 30,
+    },
+  },
+})
+```
+
+### Webhook for GitOps Reload
+
+After merging a PR that modifies plugin files, trigger a reload:
+
+```bash
+curl -X POST http://localhost:3000/webhook/reload \
+  -H "Authorization: Basic $(echo -n 'admin:password' | base64)"
+
+# Response: { "reloaded": true, "pluginCount": 3 }
+```
+
+Add this to your GitHub Actions workflow:
+
+```yaml
+- name: Trigger plugin reload
+  if: contains(github.event.head_commit.modified, '.claude/plugins/')
+  run: |
+    curl -X POST https://your-server.com/webhook/reload \
+      -H "Authorization: Basic ${{ secrets.API_AUTH }}"
+```
+
+### Graceful Shutdown
+
+Enable graceful shutdown to wait for in-flight requests during restarts:
+
+```typescript
+// main.ts
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();  // Wait for requests to complete
+  await app.listen(3000);
+}
+```
 
 ## Configuration
 
