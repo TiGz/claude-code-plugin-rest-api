@@ -89,9 +89,11 @@ class CreateStreamDto {
 interface SseMessage {
   data: {
     type: string;
+    subtype?: string;
     content?: string;
     error?: string;
     result?: unknown;
+    sessionId?: string;
     timestamp?: number;
   };
   id?: string;
@@ -390,12 +392,15 @@ export class StreamController {
   /**
    * Consume a stream session via SSE.
    * Supports both plugin agents and user-defined agents.
+   *
+   * For user-defined agents, the stream includes sessionId in system init
+   * and result events for session resumption support.
    */
   @Sse(':sessionId')
   @ApiOperation({ summary: 'Stream agent responses via SSE' })
   @ApiParam({ name: 'sessionId', description: 'Stream session ID from POST /v1/plugins/stream or /v1/agents/:name/stream' })
-  consumeStream(@Param('sessionId') sessionId: string): Observable<SseMessage> {
-    const session = this.streamSession.getSession(sessionId);
+  consumeStream(@Param('sessionId') streamSessionId: string): Observable<SseMessage> {
+    const session = this.streamSession.getSession(streamSessionId);
 
     if (!session) {
       return of({
@@ -404,7 +409,7 @@ export class StreamController {
     }
 
     // Mark session as consumed
-    this.streamSession.markConsumed(sessionId);
+    this.streamSession.markConsumed(streamSessionId);
 
     // Check if this is a user-defined agent (marked with __agent__)
     if (session.pluginName === '__agent__') {
@@ -416,7 +421,8 @@ export class StreamController {
 
       this.logger.log(`Streaming user-defined agent: ${session.agentName}`);
 
-      return this.agentService.stream(session.agentName, session.prompt).pipe(
+      // Pass session options for resume/fork support
+      return this.agentService.stream(session.agentName, session.prompt, session.sessionOptions).pipe(
         map((message) => this.formatSseMessage(message)),
         catchError((error: Error) => {
           this.logger.error(`Stream error: ${error.message}`);
@@ -446,9 +452,28 @@ export class StreamController {
   }
 
   /**
-   * Format SDK message to SSE message format
+   * Format SDK message to SSE message format.
+   * Includes sessionId in init and result events for session resumption.
    */
   private formatSseMessage(message: { type: string; [key: string]: unknown }): SseMessage {
+    // Handle system init message - include sessionId
+    if (message.type === 'system' && 'subtype' in message && message.subtype === 'init') {
+      const initMessage = message as {
+        type: 'system';
+        subtype: 'init';
+        session_id: string;
+        [key: string]: unknown;
+      };
+      return {
+        data: {
+          type: 'system',
+          subtype: 'init',
+          sessionId: initMessage.session_id,
+          timestamp: Date.now(),
+        },
+      };
+    }
+
     if (message.type === 'assistant') {
       const assistantMessage = message as {
         type: 'assistant';
@@ -475,6 +500,7 @@ export class StreamController {
         result?: string;
         total_cost_usd?: number;
         num_turns?: number;
+        session_id?: string;
       };
       return {
         data: {
@@ -485,6 +511,7 @@ export class StreamController {
             cost: resultMessage.total_cost_usd,
             turns: resultMessage.num_turns,
           },
+          sessionId: resultMessage.session_id,
           timestamp: Date.now(),
         },
       };

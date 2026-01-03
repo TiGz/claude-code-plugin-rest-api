@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import type { SessionOptions } from '../types/plugin.types.js';
 
 export interface StreamSession {
   id: string;
@@ -8,6 +9,8 @@ export interface StreamSession {
   prompt: string;
   maxTurns?: number;
   maxBudgetUsd?: number;
+  /** SDK session options for resume/fork */
+  sessionOptions?: SessionOptions;
   createdAt: number;
   consumed: boolean;
 }
@@ -30,6 +33,8 @@ export class StreamSessionService {
     prompt: string;
     maxTurns?: number;
     maxBudgetUsd?: number;
+    /** SDK session options for resume/fork */
+    sessionOptions?: SessionOptions;
   }): Promise<string> {
     const id = uuidv4();
 

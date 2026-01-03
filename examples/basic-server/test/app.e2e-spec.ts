@@ -343,7 +343,7 @@ describe('Basic Server (e2e)', () => {
         })
         .expect(201);
 
-      expect(validResponse.body).toHaveProperty('sessionId');
+      expect(validResponse.body).toHaveProperty('streamSessionId');
       expect(validResponse.body).toHaveProperty('streamUrl');
     });
 

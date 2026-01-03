@@ -16,12 +16,22 @@ import { ApiTags, ApiOperation, ApiParam, ApiBody, ApiResponse } from '@nestjs/s
 import { Ajv, ErrorObject } from 'ajv';
 import { AgentService } from '../services/agent.service.js';
 import { StreamSessionService } from '../services/stream-session.service.js';
-import { AgentConfig } from '../types/plugin.types.js';
+import { AgentConfig, SessionOptions } from '../types/plugin.types.js';
 
 const ajv = new Ajv({ allErrors: true });
 
 class ExecuteAgentDto {
   prompt!: string;
+  /**
+   * SDK session ID to resume an existing conversation.
+   * When provided, the agent continues from where the previous session left off.
+   */
+  sessionId?: string;
+  /**
+   * When true and sessionId is provided, creates a new session
+   * branching from the specified session instead of continuing it.
+   */
+  forkSession?: boolean;
   /**
    * When true, returns the agent's output directly without wrapper.
    * For agents with outputFormat, defaults to true (returns structured JSON directly).
@@ -33,6 +43,14 @@ class ExecuteAgentDto {
 
 class CreateStreamDto {
   prompt!: string;
+  /**
+   * SDK session ID to resume an existing conversation.
+   */
+  sessionId?: string;
+  /**
+   * When true and sessionId is provided, creates a new session branch.
+   */
+  forkSession?: boolean;
 }
 
 @ApiTags('agents')
@@ -82,7 +100,12 @@ export class AgentController {
   /**
    * Execute an agent (request/response mode)
    *
-   * By default, returns a wrapped response with metadata (success, result, cost, turns, usage).
+   * Supports SDK session management for multi-turn conversations:
+   * - New sessions: Omit sessionId to start a fresh conversation
+   * - Resume: Include sessionId to continue from where you left off
+   * - Fork: Include sessionId + forkSession:true to branch the conversation
+   *
+   * By default, returns a wrapped response with metadata (success, result, cost, turns, usage, sessionId).
    * For agents with outputFormat, rawResponse defaults to true (returns structured JSON directly).
    * When `rawResponse: true`, returns the agent's output directly with auto-detected Content-Type.
    *
@@ -93,7 +116,7 @@ export class AgentController {
   @ApiOperation({ summary: 'Execute an agent' })
   @ApiParam({ name: 'name', description: 'Agent name' })
   @ApiBody({ type: ExecuteAgentDto })
-  @ApiResponse({ status: 200, description: 'Execution result' })
+  @ApiResponse({ status: 200, description: 'Execution result including sessionId for resumption' })
   @ApiResponse({ status: 400, description: 'Request validation failed' })
   @ApiResponse({ status: 404, description: 'Agent not found' })
   async executeAgent(
@@ -111,6 +134,7 @@ export class AgentController {
 
     let prompt: string;
     let rawResponse: boolean | undefined;
+    let sessionOptions: SessionOptions | undefined;
 
     if (config.requestSchema) {
       // Validate request body against JSON schema
@@ -136,16 +160,24 @@ export class AgentController {
       // For requestSchema agents, rawResponse defaults based on outputFormat
       rawResponse = config.outputFormat !== undefined;
     } else {
-      // Standard behavior: expect {prompt, rawResponse?}
+      // Standard behavior: expect {prompt, sessionId?, forkSession?, rawResponse?}
       const dto = body as ExecuteAgentDto;
       if (!dto.prompt || typeof dto.prompt !== 'string') {
         throw new BadRequestException('Request body must include a "prompt" string');
       }
       prompt = dto.prompt;
       rawResponse = dto.rawResponse;
+
+      // Extract session options
+      if (dto.sessionId) {
+        sessionOptions = {
+          sessionId: dto.sessionId,
+          forkSession: dto.forkSession,
+        };
+      }
     }
 
-    const result = await this.agentService.execute(name, prompt);
+    const result = await this.agentService.execute(name, prompt, sessionOptions);
 
     if (!result.success && result.error?.includes('not found')) {
       throw new NotFoundException(result.error);
@@ -153,7 +185,7 @@ export class AgentController {
 
     if (!result.success) {
       throw new HttpException(
-        { success: false, error: result.error },
+        { success: false, error: result.error, sessionId: result.sessionId },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -163,6 +195,11 @@ export class AgentController {
 
     // Handle raw response mode with auto-detect Content-Type
     if (shouldReturnRaw) {
+      // Add session ID header for raw responses
+      if (result.sessionId) {
+        res.setHeader('X-Session-ID', result.sessionId);
+      }
+
       // For structured output, prefer structuredOutput over result
       if (result.structuredOutput !== undefined) {
         res.setHeader('Content-Type', 'application/json');
@@ -181,13 +218,20 @@ export class AgentController {
       }
     }
 
+    // Return full result including sessionId
     return result;
   }
 
   /**
    * Create a stream session for agent execution
    *
-   * Returns a session ID that can be used with GET /v1/stream/:sessionId to consume the SSE stream.
+   * Returns a stream session ID that can be used with GET /v1/stream/:sessionId to consume the SSE stream.
+   * The SSE stream will include sessionId in the init and result events for session resumption.
+   *
+   * Supports SDK session management:
+   * - New sessions: Omit sessionId to start a fresh conversation
+   * - Resume: Include sessionId to continue from where you left off
+   * - Fork: Include sessionId + forkSession:true to branch the conversation
    *
    * For agents with requestSchema configured, the request body is validated against the schema
    * and converted to a prompt using the configured template.
@@ -201,7 +245,7 @@ export class AgentController {
     description: 'Stream session created',
     schema: {
       properties: {
-        sessionId: { type: 'string' },
+        streamSessionId: { type: 'string', description: 'ID for consuming the SSE stream' },
         streamUrl: { type: 'string' },
         expiresIn: { type: 'number' },
       },
@@ -220,6 +264,7 @@ export class AgentController {
     }
 
     let prompt: string;
+    let sessionOptions: SessionOptions | undefined;
 
     if (config.requestSchema) {
       // Validate request body against JSON schema
@@ -242,27 +287,36 @@ export class AgentController {
       const template = config.requestSchema.promptTemplate ?? '{{json}}';
       prompt = template.replace('{{json}}', JSON.stringify(body, null, 2));
     } else {
-      // Standard behavior: expect {prompt}
+      // Standard behavior: expect {prompt, sessionId?, forkSession?}
       const dto = body as CreateStreamDto;
       if (!dto.prompt || typeof dto.prompt !== 'string') {
         throw new BadRequestException('Request body must include a "prompt" string');
       }
       prompt = dto.prompt;
+
+      // Extract session options
+      if (dto.sessionId) {
+        sessionOptions = {
+          sessionId: dto.sessionId,
+          forkSession: dto.forkSession,
+        };
+      }
     }
 
     this.logger.log(`Creating stream session for agent: ${name}`);
 
     // Create session with special marker for user-defined agents
-    const sessionId = await this.streamSession.createSession({
+    const streamSessionId = await this.streamSession.createSession({
       pluginName: '__agent__', // Special marker to distinguish from plugin agents
       agentName: name,
       prompt,
+      sessionOptions,
       // Note: maxTurns and maxBudgetUsd are defined in the agent config, not per-request
     });
 
     return {
-      sessionId,
-      streamUrl: `/v1/stream/${sessionId}`,
+      streamSessionId,
+      streamUrl: `/v1/stream/${streamSessionId}`,
       expiresIn: 300, // 5 minutes
     };
   }

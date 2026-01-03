@@ -17,6 +17,7 @@ A pnpm monorepo template for building REST APIs using NestJS that expose Claude 
 │       └── src/
 │           ├── auth/              # Basic auth guard and YAML provider
 │           ├── controllers/       # Plugin, stream, and agent controllers
+│           ├── queue/             # Async queue processing (QueueModule, HITL)
 │           ├── services/          # Discovery, execution, agent, and session services
 │           └── types/             # TypeScript interfaces
 ├── examples/
@@ -59,13 +60,19 @@ pnpm test:local               # Run local tests (requires Claude Max login)
 
 ### Key Components
 
-**ClaudePluginModule** - Dynamic NestJS module that provides:
-- `AgentService` - Executes user-defined agents with full SDK options
+**ClaudePluginModule** - Dynamic NestJS module for REST API:
+- `AgentService` - Executes user-defined agents with full SDK options (supports session resume/fork)
 - `PluginDiscoveryService` - Discovers plugins from filesystem
 - `PluginExecutionService` - Executes plugin agents/commands via Claude SDK
 - `StreamSessionService` - Manages SSE streaming sessions
 - Built-in controllers for `/v1/agents/*` and `/v1/plugins/*` endpoints
 - Optional basic auth with YAML or custom providers
+
+**QueueModule** - Dynamic NestJS module for async processing:
+- `PgBossService` - PostgreSQL-backed job queue (pg-boss wrapper)
+- `AsyncWorkerService` - Processes agent requests from queues
+- `HITLService` - Human-in-the-Loop tool approval with pattern matching
+- `ChannelResolverService` - Routes responses to queue or webhook channels
 
 ### User-Defined Agents (Primary Interface)
 
@@ -121,12 +128,67 @@ Plugins live in `.claude/plugins/<plugin-name>/` with:
 | POST | `/v1/plugins/:plugin/commands/:cmd` | Execute command |
 | POST | `/v1/plugins/stream` | Create SSE stream session |
 
-### Streaming & Webhooks
+### Streaming
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/v1/stream/:sessionId` | Consume SSE stream |
+
+### Webhooks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | POST | `/webhook/reload` | Trigger plugin reload (for GitOps) |
+
+## SDK Session Support
+
+The REST API supports Claude Agent SDK sessions for multi-turn conversations. Sessions allow you to resume previous conversations or fork them into new branches.
+
+### Using Sessions
+
+**Initial request** - capture the sessionId from the response:
+```bash
+curl -X POST http://localhost:3000/v1/agents/my-agent \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello, help me with a project"}'
+
+# Response includes sessionId:
+# {
+#   "success": true,
+#   "result": "Hello! I'd be happy to help...",
+#   "sessionId": "sess_abc123..."
+# }
+```
+
+**Resume a session** - continue the conversation:
+```bash
+curl -X POST http://localhost:3000/v1/agents/my-agent \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Now add tests", "sessionId": "sess_abc123..."}'
+```
+
+**Fork a session** - create a new branch from an existing conversation:
+```bash
+curl -X POST http://localhost:3000/v1/agents/my-agent \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Try a different approach", "sessionId": "sess_abc123...", "forkSession": true}'
+```
+
+### Streaming with Sessions
+
+SSE streams include session information:
+```javascript
+const eventSource = new EventSource('/v1/stream/session-id');
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === 'system' && data.subtype === 'init') {
+    console.log('Session ID:', data.sessionId);
+  }
+  if (data.type === 'complete') {
+    console.log('Final session ID:', data.sessionId);
+  }
+};
+```
 
 ## Claude Max Authentication
 
@@ -163,6 +225,7 @@ docker run -v ~/.config/claude-code/auth.json:/root/.config/claude-code/auth.jso
 
 - **Unit tests** (`pnpm test` in packages): Test services and providers in isolation
 - **E2E tests** (`test:e2e`): Test API endpoints without requiring Claude credentials. Safe for CI.
+- **Queue tests** (`test:e2e` with Docker): Test QueueModule with real PostgreSQL via testcontainers
 - **Auth tests**: Verify authentication guard and excluded paths
 - **Local tests** (`test:local`): Full integration tests that execute real Claude agents. Requires `claude login`.
 
@@ -179,6 +242,21 @@ Local tests cover:
 - Structured output with `outputFormat` JSON schema validation
 - Custom MCP tools with in-process servers
 - Plugin agent and command execution
+
+### Queue E2E Tests
+
+The queue e2e tests use testcontainers to spin up a real PostgreSQL instance. They require Docker to be running:
+
+```bash
+# Start Docker, then run tests
+pnpm test:e2e
+```
+
+If Docker is not available, queue tests are gracefully skipped with a message. The tests verify:
+- `PgBossService` initialization and queue registration
+- Job enqueueing, fetching, completing, and failing
+- Reply channel factory integration
+- Multi-job batch processing
 
 ## AgentConfig Options
 
@@ -388,6 +466,123 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
   await app.listen(3000);
+}
+```
+
+## Async Queue Processing (QueueModule)
+
+For long-running agents or integrations that need asynchronous processing (e.g., Slack bots, webhooks), the library provides a `QueueModule` that uses PostgreSQL-backed job queues via pg-boss.
+
+### Basic Setup
+
+```typescript
+import { Module } from '@nestjs/common';
+import { QueueModule, defineAgent } from '@tigz/claude-code-plugin-rest-api';
+
+@Module({
+  imports: [
+    QueueModule.forRoot({
+      connectionString: 'postgresql://localhost:5432/mydb',
+      agents: {
+        'slack-responder': defineAgent({
+          systemPrompt: 'You respond to Slack messages helpfully.',
+          permissionMode: 'bypassPermissions',
+          maxTurns: 10,
+        }),
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+### Sending Async Requests
+
+Publish jobs to agent-specific queues:
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { PgBossService } from '@tigz/claude-code-plugin-rest-api';
+
+@Injectable()
+export class SlackService {
+  constructor(private readonly pgBoss: PgBossService) {}
+
+  async handleSlackMessage(message: string, channelId: string) {
+    await this.pgBoss.send('claude.agents.slack-responder.requests', {
+      correlationId: `slack-${channelId}-${Date.now()}`,
+      agentName: 'slack-responder',
+      prompt: message,
+      replyTo: 'webhook://https://slack.com/api/chat.postMessage',
+      origin: {
+        platform: 'slack',
+        channelId,
+        metadata: { webhookUrl: 'https://slack.com/api/chat.postMessage' },
+      },
+    });
+  }
+}
+```
+
+### Reply Channels
+
+Responses are delivered via reply channels. Built-in channels:
+
+- **Queue**: `queue://response-queue-name` - Publishes response to another pg-boss queue
+- **Webhook**: `webhook://https://example.com/callback` - POSTs response to a URL
+
+### Human-in-the-Loop (HITL) Approval
+
+Configure agents to require approval for specific tools:
+
+```typescript
+QueueModule.forRoot({
+  connectionString: process.env.DATABASE_URL,
+  agents: {
+    'deploy-assistant': defineAgent({
+      systemPrompt: 'You help deploy applications.',
+      permissionMode: 'bypassPermissions',
+      hitl: {
+        requireApproval: ['Bash:kubectl*', 'Bash:*deploy*', 'Bash:*production*'],
+        autoApprove: ['Read:*', 'Glob:*', 'Grep:*'],
+        approvalTimeoutMs: 300_000, // 5 minutes
+        onTimeout: 'deny', // or 'abort'
+      },
+    }),
+  },
+  defaultHitl: {
+    approvalTimeoutMs: 600_000, // Global default: 10 minutes
+    onTimeout: 'abort',
+  },
+});
+```
+
+When a tool matches `requireApproval` patterns:
+1. An approval request is sent via the reply channel
+2. Agent execution pauses, waiting for approval
+3. Approval decisions are submitted to a queue: `claude.approvals.{correlationId}`
+
+**Pattern syntax:**
+- `Bash:*` - Matches any Bash command
+- `Bash:kubectl*` - Matches Bash commands starting with kubectl
+- `*production*` - Matches anything containing "production"
+
+### Submitting Approval Decisions
+
+```typescript
+import { HITLService } from '@tigz/claude-code-plugin-rest-api';
+
+@Injectable()
+export class ApprovalHandler {
+  constructor(private readonly hitlService: HITLService) {}
+
+  async handleSlackButton(approvalQueueName: string, approved: boolean, user: string) {
+    await this.hitlService.submitApproval(approvalQueueName, {
+      decision: approved ? 'approve' : 'deny',
+      approvedBy: user,
+      reason: approved ? undefined : 'Rejected by operator',
+    });
+  }
 }
 ```
 
