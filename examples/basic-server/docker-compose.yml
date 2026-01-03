@@ -25,4 +25,29 @@ services:
       - PLUGINS_HOT_RELOAD=true
       - CLAUDE_MAX_TURNS=50
       - CLAUDE_MAX_BUDGET_USD=10
+      - DATABASE_URL=postgresql://claude:claude@postgres:5432/claude_agents
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: claude-plugin-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: claude
+      POSTGRES_PASSWORD: claude
+      POSTGRES_DB: claude_agents
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claude -d claude_agents"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

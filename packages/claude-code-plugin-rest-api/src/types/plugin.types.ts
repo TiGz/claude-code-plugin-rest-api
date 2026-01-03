@@ -78,6 +78,81 @@ export interface RequestSchema {
 }
 
 /**
+ * Human-in-the-Loop configuration for agents that require approval for certain tools.
+ * Only applies when the agent is used via QueueModule (async queue processing).
+ * Ignored by ClaudePluginModule (REST API - synchronous responses).
+ */
+export interface HITLConfig {
+  /**
+   * Tool patterns that require human approval before execution.
+   * Patterns can include wildcards: 'Bash:*deploy*', 'Bash:kubectl*', 'Edit:*'
+   */
+  requireApproval: string[];
+
+  /**
+   * Tool patterns that are automatically approved (skip HITL).
+   * Evaluated after requireApproval - if a tool matches both, autoApprove wins.
+   */
+  autoApprove?: string[];
+
+  /**
+   * Timeout in milliseconds to wait for approval.
+   * Default: 300000 (5 minutes)
+   */
+  approvalTimeoutMs?: number;
+
+  /**
+   * Action to take when approval times out.
+   * - 'deny': Reject the tool use with a timeout message
+   * - 'abort': Abort the entire agent execution
+   * Default: 'deny'
+   */
+  onTimeout?: 'deny' | 'abort';
+}
+
+// ============================================
+// Session Options for SDK Session Support
+// ============================================
+
+/**
+ * Session options for resuming or forking SDK sessions.
+ * Used in agent execution requests.
+ */
+export interface SessionOptions {
+  /**
+   * SDK session ID to resume. When provided, the agent continues
+   * the conversation from where it left off.
+   */
+  sessionId?: string;
+
+  /**
+   * When true and sessionId is provided, creates a new session
+   * branching from the specified session instead of continuing it.
+   * Default: false
+   */
+  forkSession?: boolean;
+}
+
+/**
+ * Extended execution result that includes session information.
+ * Returned by agent execution endpoints.
+ */
+export interface AgentExecutionResult {
+  success: boolean;
+  result?: string;
+  structuredOutput?: unknown;
+  /** SDK session ID for resumption */
+  sessionId?: string;
+  error?: string;
+  cost?: number;
+  turns?: number;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+/**
  * Agent configuration extending the Claude Agent SDK Options type.
  *
  * Provides full access to all SDK options plus REST API-specific extensions.

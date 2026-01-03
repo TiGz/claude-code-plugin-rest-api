@@ -2,6 +2,25 @@
 export { ClaudePluginModule } from './claude-plugin.module.js';
 export type { ClaudePluginModuleOptions } from './claude-plugin.module.js';
 
+// Queue module (async processing with HITL)
+export { QueueModule } from './queue/queue.module.js';
+export { PgBossService } from './queue/pgboss.service.js';
+export { AsyncWorkerService } from './queue/async-worker.service.js';
+export { HITLService } from './queue/hitl.service.js';
+export {
+  BaseReplyChannel,
+  ChannelResolverService,
+  QueueReplyChannel,
+  WebhookReplyChannel,
+  createQueueReplyChannel,
+  createWebhookReplyChannel,
+} from './queue/reply-channels/index.js';
+export { QUEUE_MODULE_OPTIONS, QUEUE_AGENT_CONFIG, REPLY_CHANNELS } from './queue/queue.tokens.js';
+
+// Helpers
+export { defineAgent, toAgentConfig } from './helpers.js';
+export type { AgentDefinition } from './helpers.js';
+
 // Services (for advanced usage)
 export { PluginDiscoveryService } from './services/plugin-discovery.service.js';
 export { PluginExecutionService } from './services/plugin-execution.service.js';
@@ -20,7 +39,29 @@ export type {
 } from './types/plugin.types.js';
 
 // Types - Agent configuration (extends SDK Options)
-export type { AgentConfig, RequestSchema } from './types/plugin.types.js';
+export type {
+  AgentConfig,
+  RequestSchema,
+  HITLConfig,
+  SessionOptions,
+  AgentExecutionResult,
+} from './types/plugin.types.js';
+
+// Types - Queue (async processing)
+export type {
+  QueueModuleOptions,
+  QueueModuleAsyncOptions,
+  AsyncAgentRequest,
+  AsyncAgentResponse,
+  AsyncAgentSuccessResponse,
+  AsyncAgentErrorResponse,
+  RequestOrigin,
+  ReplyChannel,
+  ReplyMessage,
+  ApprovalDecision,
+  ApprovalRequestMessage,
+  ToolApprovalInfo,
+} from './types/queue.types.js';
 
 // Controllers (for custom routing)
 export { PluginController, StreamController } from './controllers/plugin.controller.js';
@@ -46,7 +87,7 @@ export type {
   McpSSEServerConfig,
   McpHttpServerConfig,
   McpSdkServerConfigWithInstance,
-  AgentDefinition,
+  AgentDefinition as SdkAgentDefinition,
   SdkBeta,
   SettingSource,
   SDKMessage,

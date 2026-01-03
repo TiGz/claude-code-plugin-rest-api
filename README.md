@@ -659,6 +659,21 @@ pnpm test:e2e
 pnpm test:local
 ```
 
+### Queue E2E Tests
+
+The queue e2e tests use [testcontainers](https://testcontainers.com/) to spin up a real PostgreSQL instance during test execution. They require Docker to be running:
+
+```bash
+# Ensure Docker is running, then run tests
+pnpm test:e2e
+```
+
+If Docker is not available, queue tests are gracefully skipped with a message. The tests verify:
+- `PgBossService` initialization and queue registration
+- Job enqueueing, fetching, completing, and failing
+- Reply channel factory integration
+- Multi-job batch processing
+
 ## Headless Server Authentication
 
 Claude Code requires browser-based OAuth for initial login. On headless servers/VPS without a browser, use one of these methods:
