@@ -1,14 +1,9 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { REPLY_CHANNELS } from '../queue.tokens.js';
-import type { ReplyChannel, ReplyMessage } from '../../types/queue.types.js';
+import type { ReplyChannel, ReplyChannelFactory, ReplyMessage } from '../../types/queue.types.js';
 
-/**
- * A factory that can create ReplyChannel instances for matching URIs.
- */
-export interface ReplyChannelFactory {
-  matches(uri: string): boolean;
-  create(uri: string): ReplyChannel;
-}
+// Re-export for backwards compatibility
+export type { ReplyChannelFactory } from '../../types/queue.types.js';
 
 /**
  * Service for resolving reply channels from URIs.

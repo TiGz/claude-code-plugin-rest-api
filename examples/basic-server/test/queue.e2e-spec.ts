@@ -8,6 +8,7 @@ import {
   type AsyncAgentRequest,
   type AsyncAgentResponse,
   type ReplyChannel,
+  type ReplyChannelFactory,
   type ReplyMessage,
 } from '@tigz/claude-code-plugin-rest-api';
 
@@ -77,7 +78,7 @@ class TestReplyChannel implements ReplyChannel {
  * Factory for creating test reply channels.
  * Implements the ReplyChannelFactory interface expected by ChannelResolverService.
  */
-class TestReplyChannelFactory {
+class TestReplyChannelFactory implements ReplyChannelFactory {
   constructor(private channel: TestReplyChannel) {}
 
   matches(uri: string): boolean {

@@ -57,6 +57,7 @@ export type {
   AsyncAgentErrorResponse,
   RequestOrigin,
   ReplyChannel,
+  ReplyChannelFactory,
   ReplyMessage,
   ApprovalDecision,
   ApprovalRequestMessage,

@@ -11,7 +11,7 @@ import {
 import type {
   QueueModuleOptions,
   QueueModuleAsyncOptions,
-  ReplyChannel,
+  ReplyChannelFactory,
 } from '../types/queue.types.js';
 import type { AgentConfig, HITLConfig } from '../types/plugin.types.js';
 
@@ -99,7 +99,7 @@ export class QueueModule {
     const agents = this.extractAgents(options);
 
     // Create default reply channels if not provided
-    const replyChannels: Record<string, ReplyChannel> = options.replyChannels ?? {};
+    const replyChannels: Record<string, ReplyChannelFactory> = options.replyChannels ?? {};
 
     return [
       {

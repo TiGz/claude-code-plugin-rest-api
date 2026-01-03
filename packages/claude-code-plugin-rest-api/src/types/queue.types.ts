@@ -222,6 +222,14 @@ export interface ReplyChannel {
 // ============================================
 
 /**
+ * A factory that can create ReplyChannel instances for matching URIs.
+ */
+export interface ReplyChannelFactory {
+  matches(uri: string): boolean;
+  create(uri: string): ReplyChannel;
+}
+
+/**
  * Configuration for the QueueModule.
  */
 export interface QueueModuleOptions {
@@ -238,10 +246,10 @@ export interface QueueModuleOptions {
   agents: Record<string, import('./plugin.types.js').AgentConfig>;
 
   /**
-   * Reply channels for delivering responses.
-   * Key is the channel name, used in replyTo URIs.
+   * Reply channel factories for delivering responses.
+   * Key is the channel name, value is a factory that creates channels for matching URIs.
    */
-  replyChannels?: Record<string, ReplyChannel>;
+  replyChannels?: Record<string, ReplyChannelFactory>;
 
   /**
    * pg-boss configuration options.
